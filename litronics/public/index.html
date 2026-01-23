@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Litronics - Product Management System</title>
+    <meta name="description"
+        content="Litronics Product Management System - Manage products, suppliers, pricing and landed costs">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Choices.js for searchable dropdowns -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/choices-dark.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
+                </div>
+                <span class="logo-text">Litronics</span>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-module="products">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                    <span>Products</span>
+                </a>
+                <a href="#" class="nav-item" data-module="purchase">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 3h18v18H3zM12 8v8M8 12h8" />
+                    </svg>
+                    <span>Purchase</span>
+                </a>
+                <a href="#" class="nav-item" data-module="sales">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                    </svg>
+                    <span>Sales</span>
+                </a>
+                <a href="#" class="nav-item" data-module="inventory">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 7V4h16v3M9 20h6M12 4v16" />
+                    </svg>
+                    <span>Inventory</span>
+                </a>
+                <a href="#" class="nav-item" data-module="accounts">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                    </svg>
+                    <span>Accounts</span>
+                </a>
+                <a href="#" class="nav-item" data-module="dispatch">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                    <span>Dispatch</span>
+                </a>
+                <a href="#" class="nav-item" data-module="technical">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path
+                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                    </svg>
+                    <span>Technical</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="currency-rates">
+                    <h4>Today's Rates</h4>
+                    <div class="rate-item">
+                        <span>USD</span>
+                        <span id="usd-rate">₹83.50</span>
+                    </div>
+                    <div class="rate-item">
+                        <span>RMB</span>
+                        <span id="rmb-rate">₹11.50</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <h1>Product Management</h1>
+                    <p class="subtitle">Add and manage your product catalog</p>
+                </div>
+                <div class="header-right">
+                    <button class="btn btn-primary" id="add-product-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
+                        Add Product
+                    </button>
+                </div>
+            </header>
+
+            <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon products">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="total-products">0</span>
+                        <span class="stat-label">Total Products</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon suppliers">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="total-suppliers">0</span>
+                        <span class="stat-label">Suppliers</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon categories">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="total-categories">0</span>
+                        <span class="stat-label">Categories</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon price">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                        </svg>
+                    </div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="avg-price">₹0</span>
+                        <span class="stat-label">Avg. Landed Price</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Products Table -->
+            <div class="table-container">
+                <div class="table-header">
+                    <h3>Products List</h3>
+                    <div class="table-actions">
+                        <input type="text" id="search-input" placeholder="Search products..." class="search-input">
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table id="products-table">
+                        <thead>
+                            <tr>
+                                <th>Part Code</th>
+                                <th>Description</th>
+                                <th>Category</th>
+                                <th>USD Price</th>
+                                <th>RMB Price</th>
+                                <th>BCD %</th>
+                                <th>Freight %</th>
+                                <th>GST %</th>
+                                <th>Landed Price (INR)</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="products-tbody">
+                            <!-- Products will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add/Edit Product Modal -->
+    <div class="modal-overlay" id="product-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Add New Product</h2>
+                <button class="modal-close" id="close-modal">&times;</button>
+            </div>
+            <form id="product-form" class="modal-body">
+                <div class="form-grid">
+                    <!-- Basic Info Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                            </svg>
+                            Basic Information
+                        </h3>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="part_code">Part Code *</label>
+                                <input type="text" id="part_code" name="part_code" required placeholder="e.g., P3365">
+                            </div>
+                            <div class="form-group">
+                                <label for="category_id">Category *</label>
+                                <select id="category_id" name="category_id" required>
+                                    <option value="">Select Category</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group full-width">
+                            <label for="description">Description *</label>
+                            <input type="text" id="description" name="description" required
+                                placeholder="e.g., E Cap 10uf/50V 8*12mm 3000 hrs">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="pieces_per_unit">Pieces per Unit</label>
+                                <input type="number" id="pieces_per_unit" name="pieces_per_unit" value="1" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="packaging_quantity">Packaging Qty (per pack)</label>
+                                <input type="number" id="packaging_quantity" name="packaging_quantity" value="1"
+                                    min="1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Supplier Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" />
+                            </svg>
+                            Supplier Information
+                        </h3>
+
+                        <div class="form-group full-width">
+                            <label for="supplier_ids">Suppliers (Multiple Selection)</label>
+                            <select id="supplier_ids" name="supplier_ids" multiple class="multi-select">
+                            </select>
+                            <small class="form-hint">Hold Ctrl/Cmd to select multiple suppliers</small>
+                        </div>
+                    </div>
+
+                    <!-- Pricing Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                            </svg>
+                            Pricing (Currency)
+                        </h3>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="primary_currency">Primary Currency</label>
+                                <select id="primary_currency" name="primary_currency">
+                                    <option value="USD">USD (US Dollar)</option>
+                                    <option value="RMB">RMB (Chinese Yuan)</option>
+                                    <option value="INR">INR (Indian Rupee)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="currency_amount">Unit Price</label>
+                                <div class="input-with-icon">
+                                    <span class="input-icon" id="currency-symbol">$</span>
+                                    <input type="number" id="currency_amount" name="currency_amount" step="0.0001"
+                                        value="0" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Hidden fields for form submission compatibility if needed, though we will handle in JS -->
+                        <input type="hidden" id="unit_price_usd" name="unit_price_usd" value="0">
+                        <input type="hidden" id="unit_price_rmb" name="unit_price_rmb" value="0">
+                        <input type="hidden" id="unit_price_inr" name="unit_price_inr" value="0">
+                    </div>
+
+                    <!-- Duties & Taxes Section -->
+                    <div class="form-section">
+                        <h3 class="section-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                                <line x1="1" y1="10" x2="23" y2="10" />
+                            </svg>
+                            HSN, Duties & Taxes
+                        </h3>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="hsn_code_id">
+                                    HSN Code *
+                                    <a href="#" id="manage-hsn-link"
+                                        style="float: right; font-size: 0.8em; color: var(--primary-light); text-decoration: none;">+
+                                        Add New</a>
+                                </label>
+                                <select id="hsn_code_id" name="hsn_code_id" required>
+                                    <option value="">Select HSN Code</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="hsn_category_display">HSN Category</label>
+                                <input type="text" id="hsn_category_display" readonly placeholder="Auto-filled from HSN"
+                                    class="readonly-input">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="basic_custom_duty_percentage">Basic Custom Duty (%)</label>
+                                <div class="input-with-icon">
+                                    <input type="number" id="basic_custom_duty_percentage"
+                                        name="basic_custom_duty_percentage" step="0.01" value="0" min="0" max="100">
+                                    <span class="input-icon right">%</span>
+                                </div>
+                                <small class="form-hint">Auto-filled from HSN</small>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="freight_percentage">Freight (%) - Ship/Air</label>
+                                    <div class="input-with-icon">
+                                        <input type="number" id="freight_percentage" name="freight_percentage"
+                                            step="0.01" value="4" min="0" max="100">
+                                        <span class="input-icon right">%</span>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="gst_percentage">GST (%)</label>
+                                    <div class="input-with-icon">
+                                        <input type="number" id="gst_percentage" name="gst_percentage" step="0.01"
+                                            value="18" min="0" max="100">
+                                        <span class="input-icon right">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Calculated Landed Price -->
+                        <div class="form-section landed-price-section">
+                            <h3 class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                                    <polyline points="16 7 22 7 22 13" />
+                                </svg>
+                                Calculated Landed Price
+                            </h3>
+
+                            <div class="price-breakdown">
+                                <div class="price-row">
+                                    <span>Base Price (INR):</span>
+                                    <span id="calc-base-price">₹0.00</span>
+                                </div>
+                                <div class="price-row">
+                                    <span>+ Custom Duty:</span>
+                                    <span id="calc-bcd">₹0.00</span>
+                                </div>
+                                <div class="price-row">
+                                    <span>+ Freight:</span>
+                                    <span id="calc-freight">₹0.00</span>
+                                </div>
+                                <div class="price-row">
+                                    <span>+ GST:</span>
+                                    <span id="calc-gst">₹0.00</span>
+                                </div>
+                                <div class="price-row total">
+                                    <span>Landed Price:</span>
+                                    <span id="calc-landed-price">₹0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                <polyline points="17 21 17 13 7 13 7 21" />
+                                <polyline points="7 3 7 8 15 8" />
+                            </svg>
+                            Save Product
+                        </button>
+                    </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- HSN Management Modal -->
+    <div class="modal-overlay" id="hsn-modal" style="z-index: 1100;">
+        <div class="modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2 id="hsn-modal-title">Add New HSN Code</h2>
+                <button class="modal-close" id="close-hsn-modal">&times;</button>
+            </div>
+            <form id="hsn-form" class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="new_hsn_code">HSN Code *</label>
+                        <input type="text" id="new_hsn_code" name="hsn_code" required placeholder="e.g., 94059900">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new_hsn_description">Description</label>
+                        <input type="text" id="new_hsn_description" name="description" placeholder="e.g., LED Bulbs">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new_hsn_category">HSN Category</label>
+                        <input type="text" id="new_hsn_category" name="hsn_category" placeholder="e.g., ZZZ">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="new_bcd_percentage">BCD (%)</label>
+                            <input type="number" id="new_bcd_percentage" name="basic_custom_duty_percentage" step="0.01"
+                                value="0" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="new_gst_percentage">GST (%)</label>
+                            <input type="number" id="new_gst_percentage" name="gst_percentage" step="0.01" value="18"
+                                min="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancel-hsn-btn">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save HSN</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <span class="toast-message"></span>
+    </div>
+
+    <!-- Choices.js for searchable dropdowns -->
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

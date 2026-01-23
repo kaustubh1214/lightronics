@@ -1,0 +1,43 @@
+/* Choices.js Dark Theme Overrides */
+.choices__inner {
+    background-color: var(--bg-input) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+    border-radius: 10px !important;
+    min-height: 46px;
+}
+
+.choices__input {
+    background-color: transparent !important;
+    color: var(--text-primary) !important;
+}
+
+.choices__list--dropdown {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+
+.choices__list--dropdown .choices__item--selectable.is-highlighted {
+    background-color: var(--bg-card-hover) !important;
+    color: var(--primary-light) !important;
+}
+
+.choices__list--dropdown .choices__item {
+    color: var(--text-secondary);
+}
+
+.choices[data-type*="select-one"] .choices__inner {
+    padding-bottom: 0px;
+}
+
+/* Remove default heavy styles */
+.choices__list--multiple .choices__item {
+    background-color: var(--primary);
+    border: 1px solid var(--primary-dark);
+}
+
+.choices__list--multiple .choices__item.is-highlighted {
+    background-color: var(--primary-dark);
+    border: 1px solid var(--primary-dark);
+}
