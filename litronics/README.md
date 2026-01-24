@@ -1,8 +1,9 @@
 # Litronics Product Management System
 
-A product management system for Litronics with PostgreSQL database and FastAPI backend.
+A product management system for Litronics with SQLite database and FastAPI backend.
 
 ## Modules
+
 - **Products** - Manage product catalog with pricing and landed cost calculation
 - **Purchase** - (Coming soon)
 - **Sales** - (Coming soon)
@@ -12,6 +13,7 @@ A product management system for Litronics with PostgreSQL database and FastAPI b
 - **Technical** - (Coming soon)
 
 ## Product Fields
+
 - Part Code
 - Description
 - Category
@@ -25,71 +27,51 @@ A product management system for Litronics with PostgreSQL database and FastAPI b
 - **Landed Price** (auto-calculated from all above fields)
 
 ## Tech Stack
+
 - **Frontend**: HTML, CSS, JavaScript
 - **Backend**: FastAPI (Python)
-- **Database**: PostgreSQL
+- **Database**: SQLite (with SQLAlchemy ORM)
+- **Admin Panel**: SQLAdmin
 
 ## Setup Instructions
 
-### 1. Create PostgreSQL Database
-```bash
-# Connect to PostgreSQL
-psql -U postgres
+### 1. Install Python Dependencies
 
-# Create database
-CREATE DATABASE litronics;
-
-# Connect to the database
-\c litronics
-
-# Run the schema file
-\i database/schema.sql
-```
-
-### 2. Install Python Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure Database Connection
-Edit `server/main.py` and update the DATABASE_URL:
-```python
-DATABASE_URL = "postgresql://postgres:your_password@localhost:5432/litronics"
-```
+### 2. Run the Server
 
-Or set environment variable:
-```bash
-set DATABASE_URL=postgresql://postgres:your_password@localhost:5432/litronics
-```
-
-### 4. Run the Server
 ```bash
 cd server
 uvicorn main:app --reload --port 8000
 ```
 
-### 5. Access the Application
-- Frontend: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- API Redoc: http://localhost:8000/redoc
+The SQLite database will be created automatically on first run.
+
+### 3. Access the Application
+
+- **Frontend**: http://localhost:8000
+- **Admin Panel**: http://localhost:8000/admin
+- **API Docs**: http://localhost:8000/docs
+- **API Redoc**: http://localhost:8000/redoc
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/products | Get all products |
-| POST | /api/products | Create new product |
-| GET | /api/products/{id} | Get product by ID |
-| PUT | /api/products/{id} | Update product |
-| DELETE | /api/products/{id} | Delete product |
-| GET | /api/categories | Get all categories |
-| POST | /api/categories | Create category |
-| GET | /api/suppliers | Get all suppliers |
-| POST | /api/suppliers | Create supplier |
-| GET | /api/hsn-codes | Get all HSN codes |
-| POST | /api/hsn-codes | Create HSN code |
-| GET | /api/currency-rates | Get currency rates |
-| PUT | /api/currency-rates/{code} | Update currency rate |
+| Method | Endpoint                          | Description              |
+| ------ | --------------------------------- | ------------------------ |
+| GET    | /api/products                     | Get all products         |
+| POST   | /api/products                     | Create new product       |
+| DELETE | /api/products/{id}                | Delete product           |
+| GET    | /api/products/by-part-code/{code} | Get product by part code |
+| GET    | /api/categories                   | Get all categories       |
+| GET    | /api/suppliers                    | Get all suppliers        |
+| GET    | /api/hsn-codes                    | Get all HSN codes        |
+| GET    | /api/hsn-codes/{id}               | Get HSN code by ID       |
+| POST   | /api/hsn-codes                    | Create HSN code          |
+| GET    | /api/currency-rates               | Get currency rates       |
+| GET    | /api/health                       | API health check         |
 
 ## Landed Price Calculation Formula
 
@@ -103,16 +85,38 @@ Landed Price = Subtotal + GST Value
 ```
 
 ## Project Structure
+
 ```
 litronics/
 ├── database/
-│   └── schema.sql      # PostgreSQL database schema
+│   └── schema.sql          # PostgreSQL database schema (reference)
 ├── public/
-│   ├── index.html      # Main HTML file
-│   ├── styles.css      # CSS styles
-│   └── app.js          # Frontend JavaScript
+│   ├── index.html          # Main HTML file
+│   ├── styles.css          # CSS styles
+│   ├── choices-dark.css    # Dark theme for Choices.js
+│   └── app.js              # Frontend JavaScript
 ├── server/
-│   └── main.py         # FastAPI backend
-├── requirements.txt    # Python dependencies
-└── README.md           # This file
+│   ├── __init__.py         # Package initialization
+│   ├── main.py             # FastAPI application entry point
+│   ├── database.py         # Database configuration (SQLAlchemy)
+│   ├── models.py           # SQLAlchemy ORM models
+│   ├── schemas.py          # Pydantic request/response schemas
+│   ├── routes.py           # API route handlers
+│   ├── admin.py            # SQLAdmin configuration
+│   ├── seed.py             # Default data seeding
+│   └── litronics.db        # SQLite database file
+├── requirements.txt        # Python dependencies
+└── README.md               # This file
 ```
+
+## Server Modules
+
+| Module        | Description                               |
+| ------------- | ----------------------------------------- |
+| `main.py`     | FastAPI app setup, middleware, startup    |
+| `database.py` | SQLAlchemy engine and session management  |
+| `models.py`   | Database table definitions (ORM models)   |
+| `schemas.py`  | Pydantic models for request validation    |
+| `routes.py`   | All API endpoint handlers                 |
+| `admin.py`    | SQLAdmin panel views configuration        |
+| `seed.py`     | Default data initialization               |

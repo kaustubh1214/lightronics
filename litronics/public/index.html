@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Choices.js for searchable dropdowns -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
     <link rel="stylesheet" href="/static/choices-dark.css">
 </head>
 
@@ -91,100 +91,388 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Header -->
-            <header class="header">
-                <div class="header-left">
-                    <h1>Product Management</h1>
-                    <p class="subtitle">Add and manage your product catalog</p>
-                </div>
-                <div class="header-right">
-                    <button class="btn btn-primary" id="add-product-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 5v14M5 12h14" />
-                        </svg>
-                        Add Product
-                    </button>
-                </div>
-            </header>
 
-            <!-- Stats Cards -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon products">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                        </svg>
+            <!-- PRODUCTS MODULE -->
+            <div id="products-view" class="module-view active">
+                <!-- Header -->
+                <header class="header">
+                    <div class="header-left">
+                        <h1>Product Management</h1>
+                        <p class="subtitle">Add and manage your product catalog</p>
                     </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="total-products">0</span>
-                        <span class="stat-label">Total Products</span>
+                    <div class="header-right">
+                        <button class="btn btn-primary" id="add-product-btn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14" />
+                            </svg>
+                            Add Product
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon products">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-products">0</span>
+                            <span class="stat-label">Total Products</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon suppliers">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" />
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-suppliers">0</span>
+                            <span class="stat-label">Suppliers</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon categories">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-categories">0</span>
+                            <span class="stat-label">Categories</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon price">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="avg-price">₹0</span>
+                            <span class="stat-label">Avg. Landed Price</span>
+                        </div>
                     </div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon suppliers">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                            <circle cx="9" cy="7" r="4" />
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                        </svg>
+
+                <!-- Products Table -->
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3>Products List</h3>
+                        <div class="table-actions">
+                            <input type="text" id="search-input" placeholder="Search products..." class="search-input">
+                        </div>
                     </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="total-suppliers">0</span>
-                        <span class="stat-label">Suppliers</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon categories">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
-                        </svg>
-                    </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="total-categories">0</span>
-                        <span class="stat-label">Categories</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon price">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                        </svg>
-                    </div>
-                    <div class="stat-info">
-                        <span class="stat-value" id="avg-price">₹0</span>
-                        <span class="stat-label">Avg. Landed Price</span>
+                    <div class="table-wrapper">
+                        <table id="products-table">
+                            <thead>
+                                <tr>
+                                    <th>Part Code</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>USD Price</th>
+                                    <th>RMB Price</th>
+                                    <th>BCD %</th>
+                                    <th>Freight %</th>
+                                    <th>GST %</th>
+                                    <th>Landed Price (INR)</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="products-tbody">
+                                <!-- Products will be loaded here -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
-            <!-- Products Table -->
-            <div class="table-container">
-                <div class="table-header">
-                    <h3>Products List</h3>
-                    <div class="table-actions">
-                        <input type="text" id="search-input" placeholder="Search products..." class="search-input">
+            <!-- PURCHASE MODULE -->
+            <div id="purchase-view" class="module-view" style="display: none;">
+                <!-- Header -->
+                <header class="header">
+                    <div class="header-left">
+                        <h1>Purchase Orders</h1>
+                        <p class="subtitle">Manage procurement and supplier orders</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="btn btn-primary" id="add-purchase-order-btn" onclick="openPurchaseModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14" />
+                            </svg>
+                            New Order
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Purchase Stats -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon products">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+                                <line x1="3" y1="6" x2="21" y2="6"></line>
+                                <path d="M16 10a4 4 0 0 1-8 0"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-purchase-orders">0</span>
+                            <span class="stat-label">Total Orders</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon categories">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="open-purchase-orders">0</span>
+                            <span class="stat-label">Open / Pending</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon price">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="1" x2="12" y2="23"></line>
+                                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-purchase-value">₹0</span>
+                            <span class="stat-label">Total Value</span>
+                        </div>
                     </div>
                 </div>
-                <div class="table-wrapper">
-                    <table id="products-table">
-                        <thead>
-                            <tr>
-                                <th>Part Code</th>
-                                <th>Description</th>
-                                <th>Category</th>
-                                <th>USD Price</th>
-                                <th>RMB Price</th>
-                                <th>BCD %</th>
-                                <th>Freight %</th>
-                                <th>GST %</th>
-                                <th>Landed Price (INR)</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="products-tbody">
-                            <!-- Products will be loaded here -->
-                        </tbody>
-                    </table>
+
+                <!-- Purchase Table -->
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3>Orders List</h3>
+                        <div class="table-actions">
+                            <input type="text" id="purchase-search-input" placeholder="Search orders..."
+                                class="search-input">
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="purchase-table">
+                            <thead>
+                                <tr>
+                                    <th>Order #</th>
+                                    <th>Placed By</th>
+                                    <th>Part No</th>
+                                    <th>Supplier</th>
+                                    <th>Qty</th>
+                                    <th>Unit Price</th>
+                                    <th>Other Charges</th>
+                                    <th>GST Amount</th>
+                                    <th>Final Total</th>
+                                    <th>Delivery Date</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="purchase-orders-tbody">
+                                <!-- Orders will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <!-- PURCHASE FORM VIEW -->
+            <div id="purchase-form-view" class="module-view" style="display: none;">
+                <header class="header">
+                    <div class="header-left">
+                        <button class="btn btn-secondary" onclick="closePurchaseModal()" style="margin-right: 15px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7" />
+                            </svg>
+                            Back
+                        </button>
+                        <div>
+                            <h1 id="purchase-form-title">New Purchase Order</h1>
+                            <p class="subtitle">Creates a new procurement record</p>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="card" style="padding: 24px; max-width: 1000px; margin: 0 auto;">
+                    <form id="purchase-order-form">
+                        <input type="hidden" id="purchase-order-id">
+
+                        <div class="form-grid">
+                            <!-- Order Basics -->
+                            <div class="form-section">
+                                <h3 class="section-title">Order Details</h3>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-order-placed-by">Order Placed By *</label>
+                                        <input type="text" id="purchase-order-placed-by" required placeholder="Name">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-delivery-date">Delivery Date</label>
+                                        <input type="date" id="purchase-delivery-date">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-delivery-type">Delivery Type</label>
+                                        <select id="purchase-delivery-type">
+                                            <option value="sea">Sea Freight</option>
+                                            <option value="air">Air Freight</option>
+                                            <option value="courier">Courier</option>
+                                            <option value="local">Local Transport</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Product & Supplier -->
+                            <div class="form-section">
+                                <h3 class="section-title">Product & Supplier</h3>
+                                <div class="form-group full-width">
+                                    <label for="purchase-product-id">Select Product *</label>
+                                    <select id="purchase-product-id" required>
+                                        <option value="">Select a product...</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-part-code">Part Code</label>
+                                        <input type="text" id="purchase-part-code" readonly class="readonly-input">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-item-description">Item Description</label>
+                                        <input type="text" id="purchase-item-description" readonly
+                                            class="readonly-input">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-hsn-code">HSN Code</label>
+                                        <input type="text" id="purchase-hsn-code" readonly class="readonly-input">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-category-name">Category</label>
+                                        <input type="text" id="purchase-category-name" readonly class="readonly-input">
+                                    </div>
+                                </div>
+
+                                <div class="form-group full-width">
+                                    <label for="purchase-supplier-id">Supplier</label>
+                                    <select id="purchase-supplier-id">
+                                        <option value="">Select a supplier...</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Pricing & Calculation -->
+                            <div class="form-section">
+                                <h3 class="section-title">Pricing & Quantity</h3>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-quantity">Quantity *</label>
+                                        <input type="number" id="purchase-quantity" required min="1" value="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-price-currency">Currency</label>
+                                        <select id="purchase-price-currency">
+                                            <option value="USD">USD</option>
+                                            <option value="RMB">RMB</option>
+                                            <option value="INR">INR</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Reference Prices (Hidden/Read-only) -->
+                                <input type="hidden" id="purchase-price-usd">
+                                <input type="hidden" id="purchase-price-rmb">
+                                <input type="hidden" id="purchase-price-inr">
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-unit-price">Unit Price (in selected currency)</label>
+                                        <div class="input-with-icon">
+                                            <span class="input-icon" id="purchase-currency-symbol">$</span>
+                                            <input type="number" id="purchase-unit-price" step="0.0001" min="0">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-other-charges">Other Charges (INR)</label>
+                                        <div class="input-with-icon">
+                                            <span class="input-icon">₹</span>
+                                            <input type="number" id="purchase-other-charges" step="0.01" min="0"
+                                                value="0">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group"
+                                        style="flex-direction: row; align-items: center; gap: 10px; margin-top: 25px;">
+                                        <input type="checkbox" id="purchase-gst-applicable" checked
+                                            style="width: auto;">
+                                        <label for="purchase-gst-applicable" style="margin: 0;">GST Applicable?</label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-gst-percentage">GST %</label>
+                                        <div class="input-with-icon">
+                                            <input type="number" id="purchase-gst-percentage" value="18" min="0"
+                                                max="100">
+                                            <span class="input-icon right">%</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- TOTALS -->
+                                <div class="price-breakdown"
+                                    style="background: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 8px; margin-top: 10px;">
+                                    <div class="price-row">
+                                        <span>Subtotal (INR approx):</span>
+                                        <span id="calc-purchase-subtotal">₹0.00</span>
+                                    </div>
+                                    <div class="price-row">
+                                        <span>Other Charges:</span>
+                                        <span id="calc-purchase-other">₹0.00</span>
+                                    </div>
+                                    <div class="price-row">
+                                        <span>Total before GST:</span>
+                                        <span id="calc-purchase-total">₹0.00</span>
+                                    </div>
+                                    <div class="price-row">
+                                        <span>GST Amount:</span>
+                                        <span id="calc-purchase-gst">₹0.00</span>
+                                    </div>
+                                    <div class="price-row total">
+                                        <span>Final Total (INR):</span>
+                                        <span id="calc-purchase-final">₹0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="purchase-remarks">Remarks</label>
+                                <textarea id="purchase-remarks" rows="2"
+                                    style="background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; padding: 10px; width: 100%;"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer" style="margin-top: 20px;">
+                            <button type="button" class="btn btn-secondary" id="cancel-purchase-btn"
+                                onclick="closePurchaseModal()">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save Order</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </main>
@@ -455,9 +743,11 @@
         <span class="toast-message"></span>
     </div>
 
+    <link rel="stylesheet" href="/static/styles.css?v=4">
     <!-- Choices.js for searchable dropdowns -->
-    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
+    <script src="/static/app.js?v=6"></script>
+    <script src="/static/purchase.js?v=6"></script>
 </body>
 
 </html>

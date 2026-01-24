@@ -39,11 +39,21 @@ let productsData = [];
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     console.log('App initializing...');
+
+    // Initialize Navigation
+    setupNavigation();
+
+    // Initialize Modules
     try {
-        initializeChoices(); // Initialize searchable dropdowns first
-        console.log('Choices initialized');
+        initializeChoices(); // Initialize product module dropdowns
+
+        // Initialize Purchase Module if available
+        if (typeof initializePurchaseModule === 'function') {
+            initializePurchaseModule();
+        }
+
     } catch (e) {
-        console.error('Choices init error:', e);
+        console.error('Initialization error:', e);
     }
 
     loadCategories();
@@ -54,11 +64,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
         setupEventListeners();
-        console.log('Event listeners set up');
     } catch (e) {
         console.error('Event listeners error:', e);
     }
 });
+
+function setupNavigation() {
+    console.log('Setting up navigation...');
+    const navItems = document.querySelectorAll('.nav-item');
+    const moduleViews = document.querySelectorAll('.module-view');
+
+    console.log(`Found ${navItems.length} nav items and ${moduleViews.length} module views`);
+
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const targetModule = item.dataset.module;
+            console.log(`Navigating to: ${targetModule}`);
+
+            // Only proceed if module view exists
+            const targetView = document.getElementById(`${targetModule}-view`);
+            if (!targetView) {
+                console.warn(`View not found for module: ${targetModule}`);
+                // For modules not yet implemented
+                if (['products', 'purchase'].includes(targetModule)) {
+                    // Specific logic for implemented modules
+                } else {
+                    alert(`The ${targetModule} module is coming soon!`);
+                    return;
+                }
+            }
+
+            // Update nav state
+            navItems.forEach(nav => nav.classList.remove('active'));
+            item.classList.add('active');
+
+            // Update view state
+            moduleViews.forEach(view => {
+                view.classList.remove('active');
+                view.style.display = 'none'; // Ensure display is none
+            });
+
+            if (targetView) {
+                targetView.classList.add('active');
+                targetView.style.display = 'block'; // Force display block
+                console.log(`activated view: ${targetModule}-view`);
+            }
+        });
+    });
+}
 
 // Initialize Choices.js dropdowns
 function initializeChoices() {
