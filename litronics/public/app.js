@@ -2,7 +2,7 @@
  * Litronics Product Management System - Frontend JavaScript
  */
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = '/api';
 
 // DOM Elements
 const productModal = document.getElementById('product-modal');

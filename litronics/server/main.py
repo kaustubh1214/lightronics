@@ -29,8 +29,10 @@ from admin import (
     CurrencyRateAdmin,
     CKDCostingAdmin,
     PurchaseOrderAdmin,
+    PurchasePaymentAdmin,
 )
 from seed import seed_data
+from purchase_migrations import ensure_purchase_schema
 
 
 # =============================================================================
@@ -73,6 +75,7 @@ admin.add_view(HsnCodeAdmin)
 admin.add_view(CurrencyRateAdmin)
 admin.add_view(CKDCostingAdmin)
 admin.add_view(PurchaseOrderAdmin)
+admin.add_view(PurchasePaymentAdmin)
 
 
 # =============================================================================
@@ -89,6 +92,8 @@ app.include_router(router)
 @app.on_event("startup")
 def startup():
     """Initialize database with default data on application startup."""
+    # Keep older SQLite databases compatible with current Purchase module.
+    ensure_purchase_schema()
     seed_data()
 
 

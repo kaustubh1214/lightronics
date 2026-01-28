@@ -93,6 +93,12 @@ function setupPurchaseEventListeners() {
         purchaseOrderForm.addEventListener('submit', handlePurchaseFormSubmit);
     }
 
+    // Payment Form
+    const paymentForm = document.getElementById('payment-form');
+    if (paymentForm) {
+        paymentForm.addEventListener('submit', handlePaymentSubmit);
+    }
+
     // Search
     if (purchaseSearchInput) {
         purchaseSearchInput.addEventListener('input', handlePurchaseSearch);
@@ -289,7 +295,12 @@ function renderPurchaseOrders(orders) {
         const symbol = { USD: '$', RMB: '¥', INR: '₹' }[order.price_currency] || '₹';
 
         tr.innerHTML = `
-            <td><strong>${order.order_number}</strong></td>
+            <td>
+                <div style="display: flex; flex-direction: column;">
+                    <strong>${order.order_number}</strong>
+                    <small style="color: var(--text-muted); font-size: 0.75em;" title="Purchase ID for tracking">${order.purchase_id || '-'}</small>
+                </div>
+            </td>
             <td>${order.order_placed_by}</td>
             <td>${order.part_code || '-'}</td>
             <td>${order.supplier_name || '-'}</td>
@@ -550,9 +561,299 @@ function showPurchaseToast(message, type = 'success') {
 // Export for Global Access
 // =============================================================================
 
+function viewPurchaseOrder(id) {
+    const order = purchaseOrdersData.find(o => o.id === id);
+    if (order) {
+        // Simple view implementation - reuse edit form in read-only or just populate
+        // For now, let's just use the edit modal as a view
+        openPurchaseModal(order);
+    }
+}
+
+function editPurchaseOrder(id) {
+    const order = purchaseOrdersData.find(o => o.id === id);
+    if (order) {
+        openPurchaseModal(order);
+    }
+}
+
+async function deletePurchaseOrder(id) {
+    if (!confirm('Are you sure you want to delete this purchase order?')) return;
+
+    const result = await fetchPurchaseAPI(`/purchase-orders/${id}`, { method: 'DELETE' });
+    if (result.success) {
+        showPurchaseToast('Purchase order deleted successfully');
+        loadPurchaseOrders();
+    } else {
+        showPurchaseToast(result.error || result.detail || 'Error deleting order', 'error');
+    }
+}
+
 window.viewPurchaseOrder = viewPurchaseOrder;
 window.editPurchaseOrder = editPurchaseOrder;
 window.deletePurchaseOrder = deletePurchaseOrder;
 window.initializePurchaseModule = initializePurchaseModule;
 window.openPurchaseModal = openPurchaseModal;
 window.closePurchaseModal = closePurchaseModal;
+
+// =============================================================================
+// Payment Functions
+// =============================================================================
+
+window.openPaymentSummaryModal = function () {
+    console.log('--- Opening Payment Summary Modal ---');
+    const modal = document.getElementById('payment-summary-modal');
+
+    if (modal) {
+        // Just add the active class; CSS handles display/opacity/visibility
+        modal.classList.add('active');
+
+        // Failsafe: Explicitly set styles just in case CSS fails to load or conflict
+        modal.style.display = 'flex';
+        modal.style.position = 'fixed'; // Ensure it's fixed
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100vw'; // Explicit full width
+        modal.style.height = '100vh'; // Explicit full height
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)'; // Explicit bg
+        modal.style.opacity = '1';
+        modal.style.visibility = 'visible';
+        modal.style.zIndex = '9999'; // Nuclear option z-index
+        document.body.style.overflow = 'hidden'; // Prevent background scrolling
+
+        // Move to end of body to avoid stacking context issues
+        document.body.appendChild(modal);
+
+        console.log('Class "active" added to payment modal');
+        console.log('Modal computed display:', window.getComputedStyle(modal).display);
+        console.log('Modal computed zIndex:', window.getComputedStyle(modal).zIndex);
+        console.log('Modal computed visibility:', window.getComputedStyle(modal).visibility);
+
+        // Load content
+        const tbody = document.getElementById('payment-summary-tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 30px;">Loading data...</td></tr>';
+        }
+
+        loadPaymentSummary().then(() => {
+            console.log('Payment summary data loaded successfully');
+        }).catch(err => {
+            console.error('Failed to load payment summary:', err);
+            if (tbody) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--danger);">Error: ${err.message}</td></tr>`;
+            }
+        });
+    } else {
+        console.error('CRITICAL: Element #payment-summary-modal not found in DOM');
+        alert('Internal Error: Payment modal element missing. Please check index.html.');
+    }
+};
+
+// Global Safety: Close modals on Escape key
+document.addEventListener('keydown', function (event) {
+    if (event.key === "Escape") {
+        if (window.closePaymentSummaryModal) window.closePaymentSummaryModal();
+        if (window.closePaymentFormModal) window.closePaymentFormModal();
+        if (window.closePurchaseModal) window.closePurchaseModal();
+        if (typeof closeModal === 'function') closeModal(); // Product modal
+    }
+});
+
+function closePaymentSummaryModal() {
+    const modal = document.getElementById('payment-summary-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        // Clean up explicit styles
+        modal.style.display = '';
+        modal.style.position = '';
+        modal.style.top = '';
+        modal.style.left = '';
+        modal.style.width = '';
+        modal.style.height = '';
+        modal.style.backgroundColor = '';
+        modal.style.opacity = '';
+        modal.style.visibility = '';
+        modal.style.zIndex = '';
+        document.body.style.overflow = '';
+    }
+}
+
+async function loadPaymentSummary() {
+    const tbody = document.getElementById('payment-summary-tbody');
+    if (!tbody) return;
+
+    try {
+        const result = await fetchPurchaseAPI('/suppliers/payment-summary');
+
+        if (result.success) {
+            tbody.innerHTML = '';
+            // Check if result.data is array or if result IS the array (handling both formats just in case)
+            const data = Array.isArray(result.data) ? result.data : (Array.isArray(result) ? result : []);
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No pending payments.</td></tr>';
+                return;
+            }
+
+            data.forEach(item => {
+                const tr = document.createElement('tr');
+
+                // Payment status badge styling
+                const statusColor = item.payment_status === 'Paid' ? 'var(--success)' :
+                    (item.payment_status === 'Partial' ? 'var(--warning)' : 'var(--danger)');
+
+                tr.innerHTML = `
+                    <td>
+                        <div style="display: flex; flex-direction: column;">
+                            <strong>${item.supplier_name}</strong>
+                            <small style="color: var(--text-muted);">${item.supplier_code || ''}</small>
+                        </div>
+                    </td>
+                    <td>
+                        <span title="Total: ${item.total_orders} | Open: ${item.open_orders} | Delivered: ${item.delivered_orders}">
+                            ${item.total_orders} orders
+                        </span>
+                    </td>
+                    <td>₹${parseFloat(item.total_purchase_value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td style="color: var(--success);">₹${parseFloat(item.total_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td style="color: var(--danger); font-weight: bold;">₹${parseFloat(item.balance_pending || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td>
+                        <span class="status-badge" style="background: ${statusColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75em;">
+                            ${item.payment_status}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm" style="margin-right: 5px; background: var(--bg-input); color: var(--text-primary);" 
+                                onclick="viewSupplierPaymentDetails(${item.supplier_id})" title="View Details">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                        ${item.balance_pending > 0 ? `
+                        <button class="btn btn-sm btn-primary" onclick="openPaymentFormModal(${item.supplier_id}, '${item.supplier_name.replace(/'/g, "\\'")}', ${item.balance_pending})">
+                            Pay
+                        </button>
+                        ` : ''}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } else {
+            console.error('API Error:', result);
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Error loading data. ' + (result.error || result.detail || '') + '</td></tr>';
+        }
+    } catch (e) {
+        console.error('Load Summary Error:', e);
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Connection Error</td></tr>';
+    }
+}
+
+// View detailed payment information for a supplier
+async function viewSupplierPaymentDetails(supplierId) {
+    try {
+        const result = await fetchPurchaseAPI(`/suppliers/${supplierId}/payment-details`);
+
+        if (result.success) {
+            // Create a detailed view modal or alert
+            const data = result.data;
+            const supplier = data.supplier || {}; // Fallback if structure differs
+            // Actually API returns: {id:..., supplier_id:..., ...} ? 
+            // Wait, let's check routes.py response structure for /suppliers/{id}/payment-details
+            // It returns {success:true, data: {supplier:..., summary:..., orders:..., payments:...}}
+            // So data.supplier is correct.
+
+            const summary = data.summary || {};
+            const orders = data.orders || [];
+
+            let ordersList = orders.map(o =>
+                `• ${o.order_number}: ${o.part_code || 'N/A'} - ₹${(o.final_total || 0).toLocaleString('en-IN')} (${o.status})`
+            ).join('\n');
+
+            if (!ordersList) ordersList = 'No orders found';
+
+            const message = `
+=== ${supplier.name || supplier.supplier_name || 'Supplier'} Payment Details ===
+
+Summary:
+- Total Orders: ${summary.total_orders}
+- Total Value: ₹${(summary.total_order_value || 0).toLocaleString('en-IN')}
+- Total Paid: ₹${(summary.total_paid || 0).toLocaleString('en-IN')}
+- Balance Pending: ₹${(summary.balance_pending || 0).toLocaleString('en-IN')}
+
+Orders:
+${ordersList}
+            `;
+
+            alert(message.trim());
+        } else {
+            showPurchaseToast('Error loading supplier details', 'error');
+        }
+    } catch (e) {
+        console.error('Error:', e);
+        showPurchaseToast('Error loading supplier details', 'error');
+    }
+}
+
+// Export the new function
+window.viewSupplierPaymentDetails = viewSupplierPaymentDetails;
+
+window.openPaymentFormModal = function (supplierId, supplierName, balance) {
+    const modal = document.getElementById('payment-form-modal');
+    if (modal) {
+        document.getElementById('pay-supplier-id').value = supplierId;
+        document.getElementById('pay-supplier-name').value = supplierName;
+        document.getElementById('pay-amount').value = balance > 0 ? balance : '';
+        document.getElementById('pay-date').value = new Date().toISOString().split('T')[0];
+        document.getElementById('pay-reference').value = '';
+        document.getElementById('pay-remarks').value = '';
+
+        modal.classList.add('active');
+        // Failsafe styles
+        modal.style.display = 'flex';
+        modal.style.zIndex = '2600'; // Higher than summary
+        // Note: we don't toggle overflow here because summary modal is likely already open and handles it, 
+        // or we want to keep background frozen. Doubling up is fine.
+    }
+};
+
+function closePaymentFormModal() {
+    const modal = document.getElementById('payment-form-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = '';
+        modal.style.zIndex = '';
+    }
+}
+
+async function handlePaymentSubmit(e) {
+    e.preventDefault();
+
+    const data = {
+        supplier_id: parseInt(document.getElementById('pay-supplier-id').value),
+        amount: parseFloat(document.getElementById('pay-amount').value),
+        payment_date: document.getElementById('pay-date').value,
+        payment_mode: document.getElementById('pay-mode').value,
+        reference_number: document.getElementById('pay-reference').value,
+        remarks: document.getElementById('pay-remarks').value
+    };
+
+    const result = await fetchPurchaseAPI('/payments', {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
+
+    if (result.success) {
+        showPurchaseToast('Payment recorded successfully!', 'success');
+        closePaymentFormModal();
+        loadPaymentSummary(); // Refresh summary table
+    } else {
+        showPurchaseToast(result.detail || 'Error recording payment', 'error');
+    }
+}
+
+// Export Payment Functions
+// Attached to window above
+window.closePaymentSummaryModal = closePaymentSummaryModal;
+window.closePaymentFormModal = closePaymentFormModal;
+

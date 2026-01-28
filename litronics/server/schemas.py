@@ -71,3 +71,17 @@ class PurchaseOrderUpdate(BaseModel):
     pi_status: Optional[str] = None
     remarks: Optional[str] = None
 
+
+# =============================================================================
+# Payment Schemas
+# =============================================================================
+
+class PurchasePaymentCreate(BaseModel):
+    """Schema for creating a new payment."""
+    supplier_id: int
+    purchase_order_id: Optional[int] = None
+    amount: float
+    payment_date: Optional[str] = None  # ISO date string
+    payment_mode: Optional[str] = "Bank Transfer"
+    reference_number: Optional[str] = None
+    remarks: Optional[str] = None

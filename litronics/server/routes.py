@@ -5,11 +5,14 @@ FastAPI endpoint definitions
 
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy import func, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder
-from schemas import ProductCreate, PurchaseOrderCreate, PurchaseOrderUpdate
+from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder, PurchasePayment
+from schemas import ProductCreate, PurchaseOrderCreate, PurchaseOrderUpdate, PurchasePaymentCreate
+from purchase_ids import generate_purchase_id as _generate_purchase_id, generate_order_number as _generate_order_number
 
 
 # =============================================================================
@@ -291,17 +294,9 @@ def get_currency_rates(db: Session = Depends(get_db)):
 # Purchase Order Routes
 # =============================================================================
 
-def generate_order_number(db: Session) -> str:
-    """Generate a unique order number."""
-    today = datetime.now()
-    prefix = f"PO{today.strftime('%Y%m%d')}"
-    
-    # Get count of orders today
-    count = db.query(PurchaseOrder).filter(
-        PurchaseOrder.order_number.like(f"{prefix}%")
-    ).count()
-    
-    return f"{prefix}-{count + 1:04d}"
+def _get_currency_rate_to_inr(db: Session, currency_code: str) -> float:
+    rate = db.query(CurrencyRate).filter(CurrencyRate.currency_code == currency_code).first()
+    return float(rate.rate_to_inr) if rate and rate.rate_to_inr else 1.0
 
 
 @router.get("/purchase-orders")
@@ -315,6 +310,7 @@ def get_purchase_orders(db: Session = Depends(get_db)):
     for o in orders:
         result.append({
             "id": o.id,
+            "purchase_id": o.purchase_id,  # Unique ID for tracking/reporting
             "order_number": o.order_number,
             "order_placed_by": o.order_placed_by,
             "order_date": o.order_date.isoformat() if o.order_date else None,
@@ -360,6 +356,7 @@ def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
         "success": True,
         "data": {
             "id": order.id,
+            "purchase_id": order.purchase_id,  # Unique ID for tracking/reporting
             "order_number": order.order_number,
             "order_placed_by": order.order_placed_by,
             "order_date": order.order_date.isoformat() if order.order_date else None,
@@ -393,9 +390,11 @@ def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
 
 @router.post("/purchase-orders")
 def create_purchase_order(order: PurchaseOrderCreate, db: Session = Depends(get_db)):
-    """Create a new purchase order."""
-    # Generate order number
-    order_number = generate_order_number(db)
+    """Create a new purchase order with unique purchase ID for tracking."""
+    # Generate unique purchase ID and order number (shared logic; also used by model hooks).
+    conn = db.connection()
+    purchase_id = _generate_purchase_id(conn)
+    order_number = _generate_order_number(conn)
     
     # Get product details if product_id is provided
     part_code = order.part_code
@@ -428,7 +427,8 @@ def create_purchase_order(order: PurchaseOrderCreate, db: Session = Depends(get_
     # Calculate totals
     unit_price = order.unit_price or 0
     quantity = order.quantity or 1
-    subtotal = unit_price * quantity
+    rate_to_inr = _get_currency_rate_to_inr(db, order.price_currency or "INR")
+    subtotal = (unit_price * rate_to_inr) * quantity
     other_charges = order.other_charges or 0
     total = subtotal + other_charges
     
@@ -450,8 +450,9 @@ def create_purchase_order(order: PurchaseOrderCreate, db: Session = Depends(get_
         except:
             pass
     
-    # Create purchase order
+    # Create purchase order with unique purchase_id
     db_order = PurchaseOrder(
+        purchase_id=purchase_id,  # Unique ID for tracking/reporting
         order_number=order_number,
         order_placed_by=order.order_placed_by,
         product_id=order.product_id,
@@ -479,14 +480,27 @@ def create_purchase_order(order: PurchaseOrderCreate, db: Session = Depends(get_
         pi_status="open",  # Always starts as 'open'
         remarks=order.remarks,
     )
-    
-    db.add(db_order)
-    db.commit()
-    db.refresh(db_order)
+
+    # Commit with a small retry to avoid rare uniqueness races (e.g., concurrent inserts).
+    for attempt in range(2):
+        try:
+            db.add(db_order)
+            db.commit()
+            db.refresh(db_order)
+            break
+        except IntegrityError:
+            db.rollback()
+            if attempt == 1:
+                raise
+            # Regenerate IDs and try again.
+            conn = db.connection()
+            db_order.purchase_id = _generate_purchase_id(conn)
+            db_order.order_number = _generate_order_number(conn)
     
     return {
         "success": True,
         "id": db_order.id,
+        "purchase_id": db_order.purchase_id,  # Return unique purchase ID
         "order_number": db_order.order_number,
         "message": "Purchase order created successfully"
     }
@@ -539,7 +553,8 @@ def update_purchase_order(
             pass
     
     # Recalculate totals
-    db_order.subtotal = db_order.unit_price * db_order.quantity
+    rate_to_inr = _get_currency_rate_to_inr(db, db_order.price_currency or "INR")
+    db_order.subtotal = (db_order.unit_price * rate_to_inr) * db_order.quantity
     db_order.total = db_order.subtotal + db_order.other_charges
     
     if db_order.gst_applicable:
@@ -598,6 +613,318 @@ def update_purchase_order_status(
     db.commit()
     
     return {"success": True, "message": f"Status updated to '{status}'"}
+
+
+# =============================================================================
+# Payment Routes
+# =============================================================================
+
+@router.post("/payments")
+def create_payment(payment: PurchasePaymentCreate, db: Session = Depends(get_db)):
+    """Record a new payment to a supplier."""
+    # Verify supplier
+    supplier = db.query(Supplier).filter(Supplier.id == payment.supplier_id).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+        
+    # Parse date
+    payment_date = datetime.now()
+    if payment.payment_date:
+        try:
+            payment_date = datetime.fromisoformat(payment.payment_date.replace('Z', '+00:00'))
+        except:
+            pass
+            
+    db_payment = PurchasePayment(
+        supplier_id=payment.supplier_id,
+        purchase_order_id=payment.purchase_order_id,
+        amount=payment.amount,
+        payment_date=payment_date,
+        payment_mode=payment.payment_mode,
+        reference_number=payment.reference_number,
+        remarks=payment.remarks,
+    )
+    
+    db.add(db_payment)
+    db.commit()
+    db.refresh(db_payment)
+    
+    return {"success": True, "id": db_payment.id, "message": "Payment recorded successfully"}
+
+
+@router.get("/payments")
+def get_payments(supplier_id: int = None, db: Session = Depends(get_db)):
+    """Get all payments, optionally filtered by supplier."""
+    query = db.query(PurchasePayment)
+    
+    if supplier_id:
+        query = query.filter(PurchasePayment.supplier_id == supplier_id)
+        
+    payments = query.order_by(PurchasePayment.payment_date.desc()).all()
+    
+    result = []
+    for p in payments:
+        result.append({
+            "id": p.id,
+            "supplier_id": p.supplier_id,
+            "supplier_name": p.supplier.supplier_name if p.supplier else "Unknown",
+            "purchase_order_id": p.purchase_order_id,
+            "po_number": p.purchase_order.order_number if p.purchase_order else None,
+            "amount": p.amount,
+            "payment_date": p.payment_date.isoformat(),
+            "payment_mode": p.payment_mode,
+            "reference_number": p.reference_number,
+            "remarks": p.remarks,
+        })
+        
+    return {"success": True, "data": result}
+
+
+@router.get("/suppliers/payment-summary")
+def get_supplier_payment_summary(db: Session = Depends(get_db)):
+    """
+    Get comprehensive pending balance summary for each supplier.
+    Includes order counts, total values, payments made, and pending balance.
+    """
+    orders_subq = (
+        db.query(
+            PurchaseOrder.supplier_id.label("supplier_id"),
+            func.count(PurchaseOrder.id).label("total_orders"),
+            func.sum(case((PurchaseOrder.pi_status == "open", 1), else_=0)).label("open_orders"),
+            func.sum(case((PurchaseOrder.pi_status == "confirmed", 1), else_=0)).label("confirmed_orders"),
+            func.sum(case((PurchaseOrder.pi_status == "shipped", 1), else_=0)).label("shipped_orders"),
+            func.sum(case((PurchaseOrder.pi_status == "delivered", 1), else_=0)).label("delivered_orders"),
+            func.sum(func.coalesce(PurchaseOrder.final_total, 0)).label("total_purchase_value"),
+        )
+        .filter(PurchaseOrder.is_active == True, PurchaseOrder.pi_status != "cancelled")
+        .group_by(PurchaseOrder.supplier_id)
+        .subquery()
+    )
+
+    payments_subq = (
+        db.query(
+            PurchasePayment.supplier_id.label("supplier_id"),
+            func.sum(func.coalesce(PurchasePayment.amount, 0)).label("total_paid"),
+        )
+        .group_by(PurchasePayment.supplier_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(
+            Supplier.id.label("supplier_id"),
+            Supplier.supplier_name,
+            Supplier.supplier_code,
+            Supplier.currency_preference.label("currency"),
+            orders_subq.c.total_orders,
+            orders_subq.c.open_orders,
+            orders_subq.c.confirmed_orders,
+            orders_subq.c.shipped_orders,
+            orders_subq.c.delivered_orders,
+            orders_subq.c.total_purchase_value,
+            payments_subq.c.total_paid,
+        )
+        .outerjoin(orders_subq, orders_subq.c.supplier_id == Supplier.id)
+        .outerjoin(payments_subq, payments_subq.c.supplier_id == Supplier.id)
+        .filter(Supplier.is_active == True)
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        total_purchase_value = float(r.total_purchase_value or 0)
+        total_paid = float(r.total_paid or 0)
+        balance = total_purchase_value - total_paid
+        result.append(
+            {
+                "supplier_id": r.supplier_id,
+                "supplier_name": r.supplier_name,
+                "supplier_code": r.supplier_code,
+                "currency": r.currency,
+                "total_orders": int(r.total_orders or 0),
+                "open_orders": int(r.open_orders or 0),
+                "confirmed_orders": int(r.confirmed_orders or 0),
+                "shipped_orders": int(r.shipped_orders or 0),
+                "delivered_orders": int(r.delivered_orders or 0),
+                "total_purchase_value": round(total_purchase_value, 2),
+                "total_paid": round(total_paid, 2),
+                "balance_pending": round(balance, 2),
+                "payment_status": "Paid"
+                if balance <= 0
+                else ("Partial" if total_paid > 0 else "Pending"),
+            }
+        )
+
+    result.sort(key=lambda x: x["balance_pending"], reverse=True)
+    return {"success": True, "data": result}
+
+
+@router.get("/suppliers/{supplier_id}/payment-details")
+def get_supplier_payment_details(supplier_id: int, db: Session = Depends(get_db)):
+    """
+    Get detailed payment information for a specific supplier.
+    Includes order-wise breakdown with purchase IDs for tracking.
+    """
+    supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    
+    # Get all orders for this supplier
+    orders = db.query(PurchaseOrder).filter(
+        PurchaseOrder.supplier_id == supplier_id,
+        PurchaseOrder.is_active == True
+    ).order_by(PurchaseOrder.created_at.desc()).all()
+    
+    # Get all payments for this supplier
+    payments = db.query(PurchasePayment).filter(
+        PurchasePayment.supplier_id == supplier_id
+    ).order_by(PurchasePayment.payment_date.desc()).all()
+    
+    # Calculate totals
+    total_order_value = sum(float(o.final_total or 0) for o in orders if o.pi_status != 'cancelled')
+    total_paid = sum(float(p.amount or 0) for p in payments)
+    
+    # Build order-wise breakdown
+    order_details = []
+    for o in orders:
+        # Find payments linked to this specific order
+        order_payments = [p for p in payments if p.purchase_order_id == o.id]
+        order_paid = sum(float(p.amount or 0) for p in order_payments)
+        
+        order_details.append({
+            "id": o.id,
+            "purchase_id": o.purchase_id,  # Unique tracking ID
+            "order_number": o.order_number,
+            "order_date": o.order_date.isoformat() if o.order_date else None,
+            "part_code": o.part_code,
+            "item_description": o.item_description,
+            "quantity": o.quantity,
+            "final_total": float(o.final_total or 0),
+            "status": o.pi_status,
+            "paid_amount": order_paid,
+            "pending_amount": float(o.final_total or 0) - order_paid if o.pi_status != 'cancelled' else 0
+        })
+    
+    # Build payment history
+    payment_history = [{
+        "id": p.id,
+        "amount": float(p.amount),
+        "payment_date": p.payment_date.isoformat() if p.payment_date else None,
+        "payment_mode": p.payment_mode,
+        "reference_number": p.reference_number,
+        "linked_order_id": p.purchase_order_id,
+        "linked_po_number": next((o.order_number for o in orders if o.id == p.purchase_order_id), None),
+        "remarks": p.remarks
+    } for p in payments]
+    
+    return {
+        "success": True,
+        "data": {
+            "supplier": {
+                "id": supplier.id,
+                "name": supplier.supplier_name,
+                "code": supplier.supplier_code,
+                "currency": supplier.currency_preference
+            },
+            "summary": {
+                "total_orders": len(orders),
+                "total_order_value": round(total_order_value, 2),
+                "total_paid": round(total_paid, 2),
+                "balance_pending": round(total_order_value - total_paid, 2)
+            },
+            "orders": order_details,
+            "payments": payment_history
+        }
+    }
+
+
+@router.get("/purchase-orders/by-purchase-id/{purchase_id}")
+def get_purchase_order_by_purchase_id(purchase_id: str, db: Session = Depends(get_db)):
+    """
+    Get a purchase order by its unique purchase_id.
+    This enables easy lookup for tracking, reporting, and referencing.
+    """
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.purchase_id == purchase_id,
+        PurchaseOrder.is_active == True
+    ).first()
+    
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Purchase order with ID '{purchase_id}' not found")
+    
+    return {
+        "success": True,
+        "data": {
+            "id": order.id,
+            "purchase_id": order.purchase_id,
+            "order_number": order.order_number,
+            "order_placed_by": order.order_placed_by,
+            "order_date": order.order_date.isoformat() if order.order_date else None,
+            "product_id": order.product_id,
+            "part_code": order.part_code,
+            "item_description": order.item_description,
+            "hsn_code": order.hsn_code,
+            "category_name": order.category_name,
+            "supplier_id": order.supplier_id,
+            "supplier_name": order.supplier_name,
+            "quantity": order.quantity,
+            "price_currency": order.price_currency,
+            "price_usd": order.price_usd,
+            "price_inr": order.price_inr,
+            "price_rmb": order.price_rmb,
+            "unit_price": order.unit_price,
+            "subtotal": order.subtotal,
+            "other_charges": order.other_charges,
+            "total": order.total,
+            "gst_applicable": order.gst_applicable,
+            "gst_percentage": order.gst_percentage,
+            "gst_amount": order.gst_amount,
+            "final_total": order.final_total,
+            "delivery_date": order.delivery_date.isoformat() if order.delivery_date else None,
+            "delivery_type": order.delivery_type,
+            "pi_status": order.pi_status,
+            "remarks": order.remarks,
+        }
+    }
+
+
+@router.get("/suppliers/{supplier_id}/orders")
+def get_supplier_orders(supplier_id: int, db: Session = Depends(get_db)):
+    """
+    Get all purchase orders for a specific supplier.
+    Useful for tracking supplier-specific procurement history.
+    """
+    supplier = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    
+    orders = db.query(PurchaseOrder).filter(
+        PurchaseOrder.supplier_id == supplier_id,
+        PurchaseOrder.is_active == True
+    ).order_by(PurchaseOrder.created_at.desc()).all()
+    
+    result = [{
+        "id": o.id,
+        "purchase_id": o.purchase_id,
+        "order_number": o.order_number,
+        "order_placed_by": o.order_placed_by,
+        "order_date": o.order_date.isoformat() if o.order_date else None,
+        "part_code": o.part_code,
+        "item_description": o.item_description,
+        "quantity": o.quantity,
+        "final_total": o.final_total,
+        "pi_status": o.pi_status,
+        "delivery_date": o.delivery_date.isoformat() if o.delivery_date else None,
+    } for o in orders]
+    
+    return {
+        "success": True,
+        "supplier": {
+            "id": supplier.id,
+            "name": supplier.supplier_name
+        },
+        "data": result
+    }
 
 
 # =============================================================================

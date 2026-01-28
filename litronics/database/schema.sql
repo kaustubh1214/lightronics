@@ -338,4 +338,63 @@ LIMIT 10;
 -- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO your_user;
 -- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO your_user;
 
+-- =====================================================
+-- PURCHASE_ORDERS TABLE
+-- Tracks purchase orders to suppliers
+-- =====================================================
+CREATE TABLE purchase_orders (
+    id SERIAL PRIMARY KEY,
+    purchase_id VARCHAR(50) NOT NULL UNIQUE,  -- Unique ID for tracking, reporting, referencing
+    order_number VARCHAR(50) NOT NULL UNIQUE,
+    order_placed_by VARCHAR(100) NOT NULL,
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    product_id INTEGER REFERENCES products(id),
+    part_code VARCHAR(50),
+    item_description VARCHAR(255),
+    hsn_code VARCHAR(20),
+    category_name VARCHAR(100),
+    supplier_id INTEGER REFERENCES suppliers(id),
+    supplier_name VARCHAR(150),
+    quantity INTEGER DEFAULT 1,
+    price_currency VARCHAR(10) DEFAULT 'USD',
+    price_usd DECIMAL(15, 4) DEFAULT 0,
+    price_inr DECIMAL(15, 4) DEFAULT 0,
+    price_rmb DECIMAL(15, 4) DEFAULT 0,
+    unit_price DECIMAL(15, 4) DEFAULT 0,
+    subtotal DECIMAL(15, 4) DEFAULT 0,
+    other_charges DECIMAL(15, 4) DEFAULT 0,
+    total DECIMAL(15, 4) DEFAULT 0,
+    gst_applicable BOOLEAN DEFAULT TRUE,
+    gst_percentage DECIMAL(5, 2) DEFAULT 18,
+    gst_amount DECIMAL(15, 4) DEFAULT 0,
+    final_total DECIMAL(15, 4) DEFAULT 0,
+    delivery_date TIMESTAMP,
+    delivery_type VARCHAR(50) DEFAULT 'sea',
+    pi_status VARCHAR(50) DEFAULT 'open',
+    remarks TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast purchase_id lookups
+CREATE INDEX idx_purchase_orders_purchase_id ON purchase_orders(purchase_id);
+
+-- =====================================================
+-- PURCHASE_PAYMENTS TABLE
+-- Tracks payments made to suppliers
+-- =====================================================
+CREATE TABLE purchase_payments (
+    id SERIAL PRIMARY KEY,
+    supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+    purchase_order_id INTEGER REFERENCES purchase_orders(id),
+    amount DECIMAL(15, 4) NOT NULL,
+    payment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    payment_mode VARCHAR(50),
+    reference_number VARCHAR(100),
+    remarks TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 SELECT 'Litronics Database Schema Created Successfully!' AS status;

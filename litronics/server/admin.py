@@ -13,6 +13,7 @@ from models import (
     CurrencyRate,
     CKDCosting,
     PurchaseOrder,
+    PurchasePayment,
 )
 
 
@@ -188,6 +189,7 @@ class PurchaseOrderAdmin(ModelView, model=PurchaseOrder):
     
     column_list = [
         PurchaseOrder.id,
+        PurchaseOrder.purchase_id,
         PurchaseOrder.order_number,
         PurchaseOrder.order_placed_by,
         PurchaseOrder.part_code,
@@ -198,6 +200,7 @@ class PurchaseOrderAdmin(ModelView, model=PurchaseOrder):
         PurchaseOrder.delivery_date,
     ]
     column_searchable_list = [
+        PurchaseOrder.purchase_id,
         PurchaseOrder.order_number,
         PurchaseOrder.part_code,
         PurchaseOrder.order_placed_by,
@@ -210,6 +213,7 @@ class PurchaseOrderAdmin(ModelView, model=PurchaseOrder):
     ]
     column_default_sort = [(PurchaseOrder.created_at, True)]  # Newest first
     form_columns = [
+        PurchaseOrder.purchase_id,
         PurchaseOrder.order_number,
         PurchaseOrder.order_placed_by,
         PurchaseOrder.product,
@@ -238,3 +242,44 @@ class PurchaseOrderAdmin(ModelView, model=PurchaseOrder):
         PurchaseOrder.remarks,
         PurchaseOrder.is_active,
     ]
+
+
+# =============================================================================
+# Purchase Payment Admin View
+# =============================================================================
+
+class PurchasePaymentAdmin(ModelView, model=PurchasePayment):
+    """Admin view for PurchasePayment model."""
+    name = "Payment"
+    name_plural = "Payments"
+    icon = "fa-solid fa-money-bill-wave"
+    
+    column_list = [
+        PurchasePayment.id,
+        PurchasePayment.supplier,
+        PurchasePayment.amount,
+        PurchasePayment.payment_date,
+        PurchasePayment.payment_mode,
+        PurchasePayment.reference_number,
+    ]
+    column_searchable_list = [
+        PurchasePayment.reference_number,
+        PurchasePayment.remarks,
+    ]
+    column_sortable_list = [
+        PurchasePayment.id,
+        PurchasePayment.payment_date,
+        PurchasePayment.amount,
+    ]
+    column_default_sort = [(PurchasePayment.payment_date, True)]
+    
+    form_columns = [
+        PurchasePayment.supplier,
+        PurchasePayment.purchase_order,
+        PurchasePayment.amount,
+        PurchasePayment.payment_date,
+        PurchasePayment.payment_mode,
+        PurchasePayment.reference_number,
+        PurchasePayment.remarks,
+    ]
+

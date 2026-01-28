@@ -14,9 +14,11 @@ from sqlalchemy import (
     ForeignKey,
     Table,
 )
+from sqlalchemy import event
 from sqlalchemy.orm import relationship
 
 from database import Base
+from purchase_ids import generate_missing_ids
 
 
 # =============================================================================
@@ -111,6 +113,7 @@ class Supplier(Base):
         secondary=product_suppliers,
         back_populates="suppliers"
     )
+    payments = relationship("PurchasePayment", back_populates="supplier")
 
 
 # =============================================================================
@@ -216,6 +219,9 @@ class PurchaseOrder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     
+    # Unique Purchase ID for tracking, reporting, and referencing
+    purchase_id = Column(String(50), unique=True, index=True, nullable=False)
+    
     # Order Info
     order_number = Column(String(50), unique=True, nullable=False)
     order_placed_by = Column(String(100), nullable=False)
@@ -273,4 +279,62 @@ class PurchaseOrder(Base):
     # Relationships
     product = relationship("Product")
     supplier = relationship("Supplier")
+    payments = relationship("PurchasePayment", back_populates="purchase_order")
+
+
+# =============================================================================
+# Model Hooks
+# =============================================================================
+
+@event.listens_for(PurchaseOrder, "before_insert")
+def _purchase_order_before_insert(mapper, connection, target: PurchaseOrder):  # noqa: ARG001
+    """
+    Ensure identifiers exist for every purchase order.
+
+    This makes purchase_id truly automatic across:
+    - API inserts
+    - SQLAdmin inserts
+    - scripts/tests creating ORM objects directly
+    """
+    ids = None
+    if not getattr(target, "purchase_id", None) or not str(target.purchase_id).strip():
+        ids = ids or generate_missing_ids(connection)
+        target.purchase_id = ids.purchase_id
+
+    if not getattr(target, "order_number", None) or not str(target.order_number).strip():
+        ids = ids or generate_missing_ids(connection)
+        target.order_number = ids.order_number
+
+    if not getattr(target, "order_date", None):
+        target.order_date = datetime.now()
+
+# =============================================================================
+# Purchase Payment Model
+# =============================================================================
+
+class PurchasePayment(Base):
+    """Tracks payments made to suppliers against purchase orders."""
+    __tablename__ = "purchase_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Links
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    purchase_order_id = Column(Integer, ForeignKey("purchase_orders.id"), nullable=True)
+    
+    # Payment Details
+    amount = Column(Float, nullable=False)
+    payment_date = Column(DateTime, default=datetime.now)
+    payment_mode = Column(String(50))  # Bank Transfer, Check, Cash, etc.
+    reference_number = Column(String(100))  # Transaction ID, Check No, etc.
+    remarks = Column(String(500))
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Relationships
+    supplier = relationship("Supplier", back_populates="payments")
+    purchase_order = relationship("PurchaseOrder", back_populates="payments")
+
 
