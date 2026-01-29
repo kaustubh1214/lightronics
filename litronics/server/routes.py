@@ -750,7 +750,7 @@ def get_supplier_payment_summary(db: Session = Depends(get_db)):
                 "total_paid": round(total_paid, 2),
                 "balance_pending": round(balance, 2),
                 "payment_status": "Paid"
-                if balance <= 0
+                if round(balance, 2) <= 0
                 else ("Partial" if total_paid > 0 else "Pending"),
             }
         )

@@ -811,9 +811,20 @@ window.openPaymentFormModal = function (supplierId, supplierName, balance) {
         modal.classList.add('active');
         // Failsafe styles
         modal.style.display = 'flex';
-        modal.style.zIndex = '2600'; // Higher than summary
-        // Note: we don't toggle overflow here because summary modal is likely already open and handles it, 
-        // or we want to keep background frozen. Doubling up is fine.
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100vw';
+        modal.style.height = '100vh';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.style.opacity = '1';
+        modal.style.visibility = 'visible';
+        modal.style.zIndex = '10002'; // Higher than summary modal (9999)
+
+        // Move to end of body to ensure it sits on top
+        document.body.appendChild(modal);
+
+        console.log('Opening Payment Form Modal for:', supplierName);
     }
 };
 
@@ -822,7 +833,16 @@ function closePaymentFormModal() {
     if (modal) {
         modal.classList.remove('active');
         modal.style.display = '';
+        modal.style.position = '';
+        modal.style.top = '';
+        modal.style.left = '';
+        modal.style.width = '';
+        modal.style.height = '';
+        modal.style.backgroundColor = '';
+        modal.style.opacity = '';
+        modal.style.visibility = '';
         modal.style.zIndex = '';
+        // Note: we don't reset overflow here if summary modal is still open
     }
 }
 
