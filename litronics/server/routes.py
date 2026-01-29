@@ -38,13 +38,20 @@ def get_products(db: Session = Depends(get_db)):
             "part_code": p.part_code,
             "description": p.description,
             "category_name": p.category.category_name if p.category else None,
+            "category_id": p.category_id,
+            "pieces_per_unit": p.pieces_per_unit,
+            "packaging_quantity": p.packaging_quantity,
             "hsn_code": p.hsn.hsn_code if p.hsn else None,
+            "hsn_code_id": p.hsn_code_id,
             "unit_price_usd": p.unit_price_usd,
             "unit_price_rmb": p.unit_price_rmb,
+            "unit_price_inr": p.unit_price_inr,
+            "primary_currency": p.primary_currency,
             "basic_custom_duty_percentage": p.basic_custom_duty_percentage,
             "freight_percentage": p.freight_percentage,
             "gst_percentage": p.gst_percentage,
             "landed_price_inr": p.landed_price_inr,
+            "supplier_ids": [s.id for s in p.suppliers],
         })
 
     return {"success": True, "data": result}

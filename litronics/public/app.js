@@ -115,13 +115,17 @@ function setupNavigation() {
 }
 
 // Initialize Choices.js dropdowns
+// Initialize Choices.js dropdowns
 function initializeChoices() {
     // Category: Single-select searchable
     categoryChoices = new Choices('#category_id', {
         searchEnabled: true,
         searchPlaceholderValue: 'Search categories...',
         itemSelectText: '',
-        allowHTML: true
+        placeholder: true,
+        placeholderValue: 'Select Category',
+        allowHTML: true,
+        shouldSort: false
     });
 
     // Supplier: Multi-select searchable
@@ -130,7 +134,10 @@ function initializeChoices() {
         searchPlaceholderValue: 'Search suppliers...',
         removeItemButton: true,
         itemSelectText: '',
-        allowHTML: true
+        placeholder: true,
+        placeholderValue: 'Select Suppliers',
+        allowHTML: true,
+        shouldSort: false
     });
 
     // HSN Code: Single-select searchable
@@ -138,7 +145,10 @@ function initializeChoices() {
         searchEnabled: true,
         searchPlaceholderValue: 'Search HSN codes...',
         itemSelectText: '',
-        allowHTML: true
+        placeholder: true,
+        placeholderValue: 'Select HSN Code',
+        allowHTML: true,
+        shouldSort: false
     });
 }
 
@@ -438,22 +448,42 @@ function openModal(product = null) {
         document.getElementById('currency_amount').value = parseFloat(amount || 0);
         document.getElementById('primary_currency').value = currency;
 
-        document.getElementById('category_id').value = product.category_id || '';
-        if (categoryChoices) categoryChoices.setChoiceByValue(product.category_id);
+        // Use a timeout to ensure DOM is ready and Choices is steady
+        setTimeout(() => {
+            if (categoryChoices && product.category_id) {
+                // Try both number and string to be safe
+                categoryChoices.setChoiceByValue(parseInt(product.category_id));
+                categoryChoices.setChoiceByValue(String(product.category_id));
+            }
 
-        document.getElementById('hsn_code_id').value = product.hsn_code_id || '';
-        if (hsnChoices) hsnChoices.setChoiceByValue(product.hsn_code_id);
+            if (hsnChoices && product.hsn_code_id) {
+                hsnChoices.setChoiceByValue(parseInt(product.hsn_code_id));
+                hsnChoices.setChoiceByValue(String(product.hsn_code_id));
+            }
 
-        // Handle supplier selection (multi-select)
-        if (product.supplier_ids && supplierChoices) {
-            supplierChoices.setChoiceByValue(product.supplier_ids);
-        }
+            // Handle supplier selection (multi-select)
+            if (product.supplier_ids && supplierChoices) {
+                const idsNum = Array.isArray(product.supplier_ids)
+                    ? product.supplier_ids.map(id => parseInt(id))
+                    : [parseInt(product.supplier_ids)];
+
+                const idsStr = idsNum.map(id => String(id));
+
+                supplierChoices.setChoiceByValue(idsNum);
+                supplierChoices.setChoiceByValue(idsStr);
+            }
+            console.log('Choices set for product:', product.id);
+        }, 50);
+
+        console.log('Editing Product Data:', product); // Debug log
     }
 
     updateCurrencySymbol();
     productModal.classList.add('active');
     document.body.style.overflow = 'hidden';
-    calculateLandedPrice();
+
+    // Recalculate based on loaded values - with slight delay to ensure values are set
+    setTimeout(calculateLandedPrice, 100);
 }
 
 function closeModal() {
@@ -523,7 +553,9 @@ function calculateLandedPrice() {
     const freightValue = basePrice * (freightPercent / 100);
     const subtotal = basePrice + bcdValue + freightValue;
     const gstValue = subtotal * (gstPercent / 100);
-    const landedPrice = subtotal + gstValue;
+    // const landedPrice = subtotal + gstValue; 
+    // User requested GST to be shown but not included in final landed price
+    const landedPrice = subtotal;
 
     document.getElementById('calc-base-price').textContent = `₹${basePrice.toFixed(4)}`;
     document.getElementById('calc-bcd').textContent = `₹${bcdValue.toFixed(4)}`;
