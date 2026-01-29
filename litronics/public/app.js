@@ -164,17 +164,21 @@ function setupEventListeners() {
     searchInput.addEventListener('input', handleSearch);
 
     // Price calculation listeners
-    ['currency_amount', 'primary_currency',
+    ['form_unit_price_usd', 'form_unit_price_rmb', 'form_unit_price_inr',
         'basic_custom_duty_percentage', 'freight_percentage', 'gst_percentage'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.addEventListener('input', calculateLandedPrice);
+            if (el) {
+                el.addEventListener('input', calculateLandedPrice);
+                // Format price fields on change/blur to show 4 decimal places (e.g., 0.2 -> 0.2000)
+                if (id.includes('form_unit_price')) {
+                    el.addEventListener('change', (e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        e.target.value = val.toFixed(4);
+                        calculateLandedPrice(); // Recalculate with formatted value
+                    });
+                }
+            }
         });
-
-    // Update currency symbol and recalculate when currency changes
-    document.getElementById('primary_currency').addEventListener('change', (e) => {
-        updateCurrencySymbol();
-        calculateLandedPrice();
-    });
 
     // HSN code change updates BCD and GST from HSN data
     document.getElementById('hsn_code_id').addEventListener('change', (e) => {
@@ -394,7 +398,7 @@ function renderProducts(products) {
             <td>${product.basic_custom_duty_percentage || 0}%</td>
             <td>${product.freight_percentage || 0}%</td>
             <td>${product.gst_percentage || 18}%</td>
-            <td style="color: var(--secondary); font-weight: 600;">₹${parseFloat(product.landed_price_inr || 0).toFixed(4)}</td>
+            <td style="color: var(--secondary); font-weight: 600;">₹${parseFloat(product.landed_price_inr || 0).toFixed(2)}</td>
             <td>
                 <button class="action-btn" onclick="editProduct(${product.id})" title="Edit">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -421,6 +425,9 @@ function updateCurrencySymbol() {
     document.getElementById('currency-symbol').textContent = symbolMap[currency] || '$';
 }
 
+// Multi-currency handling
+let currentProductPrices = { USD: 0, RMB: 0, INR: 0 };
+
 // Modal functions
 function openModal(product = null) {
     productForm.reset();
@@ -438,15 +445,14 @@ function openModal(product = null) {
             if (el) el.value = product[key];
         });
 
-        // Set currency amount for edit mode
-        const currency = product.primary_currency || 'USD';
-        let amount = 0;
-        if (currency === 'USD') amount = product.unit_price_usd;
-        else if (currency === 'RMB') amount = product.unit_price_rmb;
-        else if (currency === 'INR') amount = product.unit_price_inr;
+        // Load all existing prices into separate inputs
+        document.getElementById('form_unit_price_usd').value = parseFloat(product.unit_price_usd || 0).toFixed(4);
+        document.getElementById('form_unit_price_rmb').value = parseFloat(product.unit_price_rmb || 0).toFixed(4);
+        document.getElementById('form_unit_price_inr').value = parseFloat(product.unit_price_inr || 0).toFixed(4);
 
-        document.getElementById('currency_amount').value = parseFloat(amount || 0);
-        document.getElementById('primary_currency').value = currency;
+        // Set primary currency - No longer used in UI, auto-detected
+        // const currency = product.primary_currency || 'USD';
+        // document.getElementById('primary_currency').value = currency;
 
         // Use a timeout to ensure DOM is ready and Choices is steady
         setTimeout(() => {
@@ -476,9 +482,14 @@ function openModal(product = null) {
         }, 50);
 
         console.log('Editing Product Data:', product); // Debug log
+    } else {
+        // Default for new product
+        // document.getElementById('primary_currency').value = 'USD';
+        document.getElementById('form_unit_price_usd').value = '0.0000';
+        document.getElementById('form_unit_price_rmb').value = '0.0000';
+        document.getElementById('form_unit_price_inr').value = '0.0000';
     }
 
-    updateCurrencySymbol();
     productModal.classList.add('active');
     document.body.style.overflow = 'hidden';
 
@@ -491,6 +502,20 @@ function closeModal() {
     document.body.style.overflow = '';
 }
 
+// Function to determine primary currency based on inputs
+function getDeterminePrimaryCurrency() {
+    const usd = parseFloat(document.getElementById('form_unit_price_usd').value) || 0;
+    const rmb = parseFloat(document.getElementById('form_unit_price_rmb').value) || 0;
+    const inr = parseFloat(document.getElementById('form_unit_price_inr').value) || 0;
+
+    if (usd > 0) return 'USD';
+    if (rmb > 0) return 'RMB';
+    if (inr > 0) return 'INR';
+    return 'USD'; // Default
+}
+
+
+
 // Form submission
 async function handleFormSubmit(e) {
     e.preventDefault();
@@ -500,21 +525,19 @@ async function handleFormSubmit(e) {
 
     // Process basic fields
     formData.forEach((value, key) => {
-        if (!['supplier_ids', 'currency_amount', 'unit_price_usd', 'unit_price_rmb', 'unit_price_inr'].includes(key)) {
+        // Skip explicitly handled fields
+        if (!['supplier_ids', 'form_unit_price_usd', 'form_unit_price_rmb', 'form_unit_price_inr', 'primary_currency'].includes(key)) {
             if (value) {
                 data[key] = isNaN(value) ? value : parseFloat(value) || value;
             }
         }
     });
 
-    // Handle Pricing
-    const currency = document.getElementById('primary_currency').value;
-    const amount = parseFloat(document.getElementById('currency_amount').value) || 0;
-
-    data.primary_currency = currency;
-    data.unit_price_usd = currency === 'USD' ? amount : 0;
-    data.unit_price_rmb = currency === 'RMB' ? amount : 0;
-    data.unit_price_inr = currency === 'INR' ? amount : 0;
+    // Handle Pricing - Read directly from the 3 separate inputs
+    data.unit_price_usd = parseFloat(document.getElementById('form_unit_price_usd').value) || 0;
+    data.unit_price_rmb = parseFloat(document.getElementById('form_unit_price_rmb').value) || 0;
+    data.unit_price_inr = parseFloat(document.getElementById('form_unit_price_inr').value) || 0;
+    data.primary_currency = getDeterminePrimaryCurrency();
 
     // Get multiple select values
     const supplierSelect = document.getElementById('supplier_ids');
@@ -540,28 +563,79 @@ async function handleFormSubmit(e) {
 
 // Calculate landed price
 function calculateLandedPrice() {
-    const currency = document.getElementById('primary_currency').value;
-    const unitPrice = parseFloat(document.getElementById('currency_amount').value) || 0;
+    const container = document.getElementById('landed-price-container');
+    if (!container) return;
 
-    const rate = currencyRates[currency] || 1;
+    // Get input values
+    const prices = {
+        'USD': parseFloat(document.getElementById('form_unit_price_usd').value) || 0,
+        'RMB': parseFloat(document.getElementById('form_unit_price_rmb').value) || 0,
+        'INR': parseFloat(document.getElementById('form_unit_price_inr').value) || 0
+    };
+
     const bcdPercent = parseFloat(document.getElementById('basic_custom_duty_percentage').value) || 0;
     const freightPercent = parseFloat(document.getElementById('freight_percentage').value) || 0;
     const gstPercent = parseFloat(document.getElementById('gst_percentage').value) || 18;
 
-    const basePrice = unitPrice * rate;
-    const bcdValue = basePrice * (bcdPercent / 100);
-    const freightValue = basePrice * (freightPercent / 100);
-    const subtotal = basePrice + bcdValue + freightValue;
-    const gstValue = subtotal * (gstPercent / 100);
-    // const landedPrice = subtotal + gstValue; 
-    // User requested GST to be shown but not included in final landed price
-    const landedPrice = subtotal;
+    let html = '';
+    let hasPrice = false;
 
-    document.getElementById('calc-base-price').textContent = `₹${basePrice.toFixed(4)}`;
-    document.getElementById('calc-bcd').textContent = `₹${bcdValue.toFixed(4)}`;
-    document.getElementById('calc-freight').textContent = `₹${freightValue.toFixed(4)}`;
-    document.getElementById('calc-gst').textContent = `₹${gstValue.toFixed(4)}`;
-    document.getElementById('calc-landed-price').textContent = `₹${landedPrice.toFixed(4)}`;
+    // Helper to format currency
+    const formatINR = (val) => '₹' + val.toFixed(4);
+
+    ['USD', 'RMB', 'INR'].forEach(currency => {
+        const unitPrice = prices[currency];
+        if (unitPrice > 0) {
+            hasPrice = true;
+            const rate = currencyRates[currency] || 1;
+            const symbol = { 'USD': '$', 'RMB': '¥', 'INR': '₹' }[currency];
+
+            const basePrice = unitPrice * rate;
+            const bcdValue = basePrice * (bcdPercent / 100);
+            const freightValue = basePrice * (freightPercent / 100);
+            const subtotal = basePrice + bcdValue + freightValue;
+            const gstValue = subtotal * (gstPercent / 100);
+            const landedPrice = subtotal; // GST excluded from landed cost per user request
+
+            html += `
+                <div class="price-breakdown" style="margin-bottom: 15px; border: 1px solid var(--border); padding: 10px; border-radius: 6px;">
+                    <div style="font-weight: 600; color: var(--primary); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                        Based on ${currency} Price (${symbol}${unitPrice.toFixed(4)})
+                    </div>
+                    <div class="price-row">
+                        <span>Base Price (INR):</span>
+                        <span>${formatINR(basePrice)}</span>
+                    </div>
+                    <div class="price-row">
+                        <span>+ Custom Duty (${bcdPercent}%):</span>
+                        <span>${formatINR(bcdValue)}</span>
+                    </div>
+                    <div class="price-row">
+                        <span>+ Freight (${freightPercent}%):</span>
+                        <span>${formatINR(freightValue)}</span>
+                    </div>
+                    <div class="price-row" style="color: var(--text-muted); font-size: 0.9em;">
+                        <span>+ GST (${gstPercent}%):</span>
+                        <span>${formatINR(gstValue)}</span>
+                    </div>
+                    <div class="price-row total" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);">
+                        <span>Landed Price:</span>
+                        <span>${formatINR(landedPrice)}</span>
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    if (!hasPrice) {
+        html = `
+            <div class="price-breakdown empty-state">
+                <p style="text-align:center; color: var(--text-muted);">Enter a price (USD, RMB, or INR) to see calculation</p>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
 }
 
 // Search

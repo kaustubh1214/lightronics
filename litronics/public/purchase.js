@@ -121,9 +121,43 @@ function setupPurchaseEventListeners() {
                 // Set reference prices
                 safeSetValue('purchase-price-usd', product.unit_price_usd || 0);
                 safeSetValue('purchase-price-rmb', product.unit_price_rmb || 0);
-                safeSetValue('purchase-price-inr', product.landed_price_inr || 0);
+                safeSetValue('purchase-price-inr', product.unit_price_inr || 0); // Use Base INR Price not Landed
+
+                // Dynamic Currency Dropdown
+                const currencySelect = document.getElementById('purchase-price-currency');
+                if (currencySelect) {
+                    currencySelect.innerHTML = ''; // Clear existing
+                    const opts = [];
+
+                    if ((product.unit_price_usd || 0) > 0) opts.push({ val: 'USD', text: 'USD (US Dollar)' });
+                    if ((product.unit_price_rmb || 0) > 0) opts.push({ val: 'RMB', text: 'RMB (Chinese Yuan)' });
+                    if ((product.unit_price_inr || 0) > 0) opts.push({ val: 'INR', text: 'INR (Indian Rupee)' });
+
+                    // Fallback if no prices set, or just use primary
+                    if (opts.length === 0) {
+                        // If no prices, maybe just show USD default or Primary
+                        opts.push({ val: 'USD', text: 'USD (US Dollar)' });
+                        opts.push({ val: 'RMB', text: 'RMB (Chinese Yuan)' });
+                        opts.push({ val: 'INR', text: 'INR (Indian Rupee)' });
+                    }
+
+                    opts.forEach(o => {
+                        const opt = document.createElement('option');
+                        opt.value = o.val;
+                        opt.textContent = o.text;
+                        currencySelect.appendChild(opt);
+                    });
+
+                    // Set default selection
+                    if (product.primary_currency && opts.some(o => o.val === product.primary_currency)) {
+                        currencySelect.value = product.primary_currency;
+                    } else if (opts.length > 0) {
+                        currencySelect.value = opts[0].val;
+                    }
+                }
 
                 // Set unit price based on selected currency
+                updatePurchaseCurrencySymbol();
                 updatePurchaseUnitPrice();
                 calculatePurchaseTotal();
             }

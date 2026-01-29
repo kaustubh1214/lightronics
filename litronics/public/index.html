@@ -565,29 +565,32 @@
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="primary_currency">Primary Currency</label>
-                                <select id="primary_currency" name="primary_currency">
-                                    <option value="USD">USD (US Dollar)</option>
-                                    <option value="RMB">RMB (Chinese Yuan)</option>
-                                    <option value="INR">INR (Indian Rupee)</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="currency_amount">Unit Price</label>
+                                <label for="form_unit_price_usd">Price (USD)</label>
                                 <div class="input-with-icon">
-                                    <span class="input-icon" id="currency-symbol">$</span>
-                                    <input type="number" id="currency_amount" name="currency_amount" step="0.0001"
-                                        value="0" min="0">
+                                    <span class="input-icon">$</span>
+                                    <input type="number" id="form_unit_price_usd" name="form_unit_price_usd"
+                                        step="0.0001" value="0" min="0">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="form_unit_price_rmb">Price (RMB)</label>
+                                <div class="input-with-icon">
+                                    <span class="input-icon">¥</span>
+                                    <input type="number" id="form_unit_price_rmb" name="form_unit_price_rmb"
+                                        step="0.0001" value="0" min="0">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="form_unit_price_inr">Price (INR)</label>
+                                <div class="input-with-icon">
+                                    <span class="input-icon">₹</span>
+                                    <input type="number" id="form_unit_price_inr" name="form_unit_price_inr"
+                                        step="0.0001" value="0" min="0">
                                 </div>
                             </div>
                         </div>
-                        <!-- Hidden fields for form submission compatibility if needed, though we will handle in JS -->
-                        <input type="hidden" id="unit_price_usd" name="unit_price_usd" value="0">
-                        <input type="hidden" id="unit_price_rmb" name="unit_price_rmb" value="0">
-                        <input type="hidden" id="unit_price_inr" name="unit_price_inr" value="0">
+
+                        <!-- Hidden legacy fields removed as we now use direct form IDs -->
                     </div>
 
                     <!-- Duties & Taxes Section -->
@@ -660,26 +663,11 @@
                                 Calculated Landed Price
                             </h3>
 
-                            <div class="price-breakdown">
-                                <div class="price-row">
-                                    <span>Base Price (INR):</span>
-                                    <span id="calc-base-price">₹0.00</span>
-                                </div>
-                                <div class="price-row">
-                                    <span>+ Custom Duty:</span>
-                                    <span id="calc-bcd">₹0.00</span>
-                                </div>
-                                <div class="price-row">
-                                    <span>+ Freight:</span>
-                                    <span id="calc-freight">₹0.00</span>
-                                </div>
-                                <div class="price-row">
-                                    <span>+ GST:</span>
-                                    <span id="calc-gst">₹0.00</span>
-                                </div>
-                                <div class="price-row total">
-                                    <span>Landed Price:</span>
-                                    <span id="calc-landed-price">₹0.00</span>
+                            <div id="landed-price-container">
+                                <!-- Dynamic content will be injected here via JS -->
+                                <div class="price-breakdown empty-state">
+                                    <p style="text-align:center; color: var(--text-muted);">Enter a price to see
+                                        calculation</p>
                                 </div>
                             </div>
                         </div>
@@ -842,8 +830,8 @@
 
     <!-- Choices.js for searchable dropdowns -->
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
-    <script src="/static/app.js?v=9"></script>
-    <script src="/static/purchase.js?v=100"></script>
+    <script src="/static/app.js?v=16"></script>
+    <script src="/static/purchase.js?v=101"></script>
 </body>
 
 </html>

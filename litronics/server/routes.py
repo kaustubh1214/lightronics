@@ -61,24 +61,37 @@ def get_products(db: Session = Depends(get_db)):
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     """Create a new product with landed price calculation."""
     # Get currency rate
-    rate = db.query(CurrencyRate).filter(
-        CurrencyRate.currency_code == product.primary_currency
-    ).first()
-    rate_to_inr = rate.rate_to_inr if rate else 83.50
+    rate_to_inr = 1.0
+    if product.primary_currency != "INR":
+        rate = db.query(CurrencyRate).filter(
+            CurrencyRate.currency_code == product.primary_currency
+        ).first()
+        
+        if rate:
+            rate_to_inr = rate.rate_to_inr
+        else:
+            # Fallback hardcoded defaults if DB update missing
+            defaults = {"USD": 83.50, "RMB": 11.50}
+            rate_to_inr = defaults.get(product.primary_currency, 1.0)
 
     # Calculate landed price
     if product.primary_currency == "USD":
-        base_price = product.unit_price_usd * rate_to_inr
+        base_price = (product.unit_price_usd or 0) * rate_to_inr
     elif product.primary_currency == "RMB":
-        base_price = product.unit_price_rmb * rate_to_inr
+        base_price = (product.unit_price_rmb or 0) * rate_to_inr
     else:
-        base_price = product.unit_price_inr
+        base_price = product.unit_price_inr or 0
 
     bcd = base_price * (product.basic_custom_duty_percentage / 100)
     freight = base_price * (product.freight_percentage / 100)
     subtotal = base_price + bcd + freight
     gst = subtotal * (product.gst_percentage / 100)
     landed_price_inr = subtotal + gst
+
+    # Safe division for USD landed price
+    landed_price_usd = 0
+    if rate_to_inr > 0:
+        landed_price_usd = landed_price_inr / rate_to_inr
 
     # Create product
     db_product = Product(
@@ -96,7 +109,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         freight_percentage=product.freight_percentage,
         gst_percentage=product.gst_percentage,
         landed_price_inr=landed_price_inr,
-        landed_price_usd=landed_price_inr / rate_to_inr,
+        landed_price_usd=landed_price_usd,
     )
 
     # Link suppliers
@@ -106,9 +119,17 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         ).all()
         db_product.suppliers = suppliers
 
-    db.add(db_product)
-    db.commit()
-    db.refresh(db_product)
+    try:
+        db.add(db_product)
+        db.commit()
+        db.refresh(db_product)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Product with this Part Code already exists.")
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating product: {str(e)}") # Log for debug
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
     return {"success": True, "id": db_product.id, "message": "Product created"}
 
