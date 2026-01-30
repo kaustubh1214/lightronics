@@ -262,29 +262,54 @@
                 <!-- Purchase Table -->
                 <div class="table-container">
                     <div class="table-header">
-                        <h3>Orders List</h3>
+                        <div class="view-tabs in-table-header">
+                            <button class="active" id="tab-orders" onclick="switchPurchaseTab('orders')">Orders</button>
+                            <button id="tab-items" onclick="switchPurchaseTab('items')">Item Wise</button>
+                        </div>
                         <div class="table-actions">
-                            <input type="text" id="purchase-search-input" placeholder="Search orders..."
-                                class="search-input">
+                            <input type="text" id="purchase-search-input" placeholder="Search..." class="search-input">
+                        </div>
+                    </div>
+
+                    <!-- Filter Bar (Item Wise Only) -->
+                    <div id="purchase-filter-bar" class="filter-bar">
+                        <div class="filter-group">
+                            <label>Purchase ID</label>
+                            <input type="text" id="filter-purchase-id" class="filter-input" placeholder="e.g. PO-2024">
+                        </div>
+                        <div class="filter-group">
+                            <label>Part Code</label>
+                            <input type="text" id="filter-part-code" class="filter-input" placeholder="e.g. COMP-001">
+                        </div>
+                        <div class="filter-group">
+                            <label>Supplier</label>
+                            <select id="filter-supplier" class="filter-input">
+                                <option value="">All Suppliers</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Status</label>
+                            <select id="filter-status" class="filter-input">
+                                <option value="">All Statuses</option>
+                                <option value="open">Open</option>
+                                <option value="confirmed">Confirmed</option>
+                                <option value="shipped">Shipped</option>
+                                <option value="delivered">Delivered</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Delivery Date</label>
+                            <input type="date" id="filter-delivery-date" class="filter-input">
+                        </div>
+                        <div class="filter-group" style="justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="clearPurchaseFilters()"
+                                style="padding: 8px 12px; font-size: 0.85rem; margin-top: 19px;">Clear</button>
                         </div>
                     </div>
                     <div class="table-wrapper">
                         <table id="purchase-table">
-                            <thead>
-                                <tr>
-                                    <th>Order #</th>
-                                    <th>Placed By</th>
-                                    <th>Part No</th>
-                                    <th>Supplier</th>
-                                    <th>Qty</th>
-                                    <th>Unit Price</th>
-                                    <th>Other Charges</th>
-                                    <th>GST Amount</th>
-                                    <th>Final Total</th>
-                                    <th>Delivery Date</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
-                                </tr>
+                            <thead id="purchase-table-head">
+                                <!-- Headers injected via JS based on active tab -->
                             </thead>
                             <tbody id="purchase-orders-tbody">
                                 <!-- Orders will be loaded here -->
@@ -312,24 +337,26 @@
                 </header>
 
                 <div class="card" style="padding: 24px; max-width: 1000px; margin: 0 auto;">
-                    <form id="purchase-order-form">
-                        <input type="hidden" id="purchase-order-id">
-
+                    <div class="card" style="padding: 24px; max-width: 1200px; margin: 0 auto;">
                         <div class="form-grid">
-                            <!-- Order Basics -->
+                            <!-- BATCH HEADER -->
                             <div class="form-section">
-                                <h3 class="section-title">Order Details</h3>
+                                <h3 class="section-title">Batch Order Details</h3>
                                 <div class="form-row">
                                     <div class="form-group">
                                         <label for="purchase-order-placed-by">Order Placed By *</label>
                                         <input type="text" id="purchase-order-placed-by" required placeholder="Name">
                                     </div>
                                     <div class="form-group">
-                                        <label for="purchase-delivery-date">Delivery Date</label>
+                                        <label for="purchase-common-supplier">Supplier *</label>
+                                        <select id="purchase-common-supplier">
+                                            <option value="">Select Supplier</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="purchase-delivery-date">Expected Delivery</label>
                                         <input type="date" id="purchase-delivery-date">
                                     </div>
-                                </div>
-                                <div class="form-row">
                                     <div class="form-group">
                                         <label for="purchase-delivery-type">Delivery Type</label>
                                         <select id="purchase-delivery-type">
@@ -342,55 +369,74 @@
                                 </div>
                             </div>
 
-                            <!-- Product & Supplier -->
+                            <!-- ITEMS LIST -->
                             <div class="form-section">
-                                <h3 class="section-title">Product & Supplier</h3>
-                                <div class="form-group full-width">
-                                    <label for="purchase-product-id">Select Product *</label>
-                                    <select id="purchase-product-id" required>
-                                        <option value="">Select a product...</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="purchase-part-code">Part Code</label>
-                                        <input type="text" id="purchase-part-code" readonly class="readonly-input">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="purchase-item-description">Item Description</label>
-                                        <input type="text" id="purchase-item-description" readonly
-                                            class="readonly-input">
-                                    </div>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="purchase-hsn-code">HSN Code</label>
-                                        <input type="text" id="purchase-hsn-code" readonly class="readonly-input">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="purchase-category-name">Category</label>
-                                        <input type="text" id="purchase-category-name" readonly class="readonly-input">
-                                    </div>
-                                </div>
-
-                                <div class="form-group full-width">
-                                    <label for="purchase-supplier-id">Supplier</label>
-                                    <select id="purchase-supplier-id">
-                                        <option value="">Select a supplier...</option>
-                                    </select>
+                                <h3 class="section-title">Items in Order</h3>
+                                <div class="table-wrapper"
+                                    style="max-height: 300px; overflow-y: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 8px;">
+                                    <table id="batch-items-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Part Code</th>
+                                                <th>Description</th>
+                                                <th>Qty</th>
+                                                <th>Price</th>
+                                                <th>Total (INR)</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="batch-items-tbody">
+                                            <tr>
+                                                <td colspan="6" style="text-align:center; color: var(--text-muted);">No
+                                                    items added yet.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
 
-                            <!-- Pricing & Calculation -->
-                            <div class="form-section">
-                                <h3 class="section-title">Pricing & Quantity</h3>
+                            <!-- ADD ITEM FORM -->
+                            <div class="form-section"
+                                style="background: var(--bg-secondary); padding: 15px; border-radius: 8px;">
+                                <h3 class="section-title">Add Item to Order</h3>
+
+                                <div class="form-row">
+                                    <div class="form-group full-width">
+                                        <label for="purchase-product-id">Select Product</label>
+                                        <select id="purchase-product-id">
+                                            <option value="">Select a product...</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Last 3 Prices Display -->
+                                <div id="last-prices-display"
+                                    style="display: none; margin-bottom: 15px; font-size: 0.9em;">
+                                    <strong style="color: var(--text-muted);">Last 3 Purchase Prices:</strong>
+                                    <div id="last-prices-list"
+                                        style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 5px;"></div>
+                                </div>
 
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label for="purchase-quantity">Quantity *</label>
-                                        <input type="number" id="purchase-quantity" required min="1" value="1">
+                                        <label>Part Code</label>
+                                        <input type="text" id="purchase-part-code" readonly class="readonly-input">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Description</label>
+                                        <input type="text" id="purchase-item-description" readonly
+                                            class="readonly-input">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>HSN</label>
+                                        <input type="text" id="purchase-hsn-code" readonly class="readonly-input">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="purchase-quantity">Qty</label>
+                                        <input type="number" id="purchase-quantity" min="1" value="1">
                                     </div>
                                     <div class="form-group">
                                         <label for="purchase-price-currency">Currency</label>
@@ -400,87 +446,54 @@
                                             <option value="INR">INR</option>
                                         </select>
                                     </div>
+                                    <div class="form-group">
+                                        <label>Unit Price</label>
+                                        <div class="input-with-icon">
+                                            <span class="input-icon" id="purchase-currency-symbol">$</span>
+                                            <input type="number" id="purchase-unit-price" step="0.0001">
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <!-- Reference Prices (Hidden/Read-only) -->
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Other Charges (INR)</label>
+                                        <input type="number" id="purchase-other-charges" value="0">
+                                    </div>
+                                    <div class="form-group" style="align-self: center;">
+                                        <input type="checkbox" id="purchase-gst-applicable" checked>
+                                        <label for="purchase-gst-applicable" style="display:inline;">GST Applicable
+                                            (18%)</label>
+                                        <input type="hidden" id="purchase-gst-percentage" value="18">
+                                    </div>
+                                    <div class="form-group">
+                                        <button type="button" class="btn btn-primary" id="add-item-to-batch-btn"
+                                            style="margin-top: 24px;">
+                                            + Add Item
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Hidden ref prices and category -->
                                 <input type="hidden" id="purchase-price-usd">
                                 <input type="hidden" id="purchase-price-rmb">
                                 <input type="hidden" id="purchase-price-inr">
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="purchase-unit-price">Unit Price (in selected currency)</label>
-                                        <div class="input-with-icon">
-                                            <span class="input-icon" id="purchase-currency-symbol">$</span>
-                                            <input type="number" id="purchase-unit-price" step="0.0001" min="0">
-                                        </div>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="purchase-other-charges">Other Charges (INR)</label>
-                                        <div class="input-with-icon">
-                                            <span class="input-icon">₹</span>
-                                            <input type="number" id="purchase-other-charges" step="0.01" min="0"
-                                                value="0">
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group"
-                                        style="flex-direction: row; align-items: center; gap: 10px; margin-top: 25px;">
-                                        <input type="checkbox" id="purchase-gst-applicable" checked
-                                            style="width: auto;">
-                                        <label for="purchase-gst-applicable" style="margin: 0;">GST Applicable?</label>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="purchase-gst-percentage">GST %</label>
-                                        <div class="input-with-icon">
-                                            <input type="number" id="purchase-gst-percentage" value="18" min="0"
-                                                max="100">
-                                            <span class="input-icon right">%</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- TOTALS -->
-                                <div class="price-breakdown"
-                                    style="background: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 8px; margin-top: 10px;">
-                                    <div class="price-row">
-                                        <span>Subtotal (INR approx):</span>
-                                        <span id="calc-purchase-subtotal">₹0.00</span>
-                                    </div>
-                                    <div class="price-row">
-                                        <span>Other Charges:</span>
-                                        <span id="calc-purchase-other">₹0.00</span>
-                                    </div>
-                                    <div class="price-row">
-                                        <span>Total before GST:</span>
-                                        <span id="calc-purchase-total">₹0.00</span>
-                                    </div>
-                                    <div class="price-row">
-                                        <span>GST Amount:</span>
-                                        <span id="calc-purchase-gst">₹0.00</span>
-                                    </div>
-                                    <div class="price-row total">
-                                        <span>Final Total (INR):</span>
-                                        <span id="calc-purchase-final">₹0.00</span>
-                                    </div>
-                                </div>
+                                <input type="hidden" id="purchase-category-name">
                             </div>
 
                             <div class="form-group full-width">
-                                <label for="purchase-remarks">Remarks</label>
-                                <textarea id="purchase-remarks" rows="2"
-                                    style="background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 8px; padding: 10px; width: 100%;"></textarea>
+                                <label for="purchase-remarks">Global Remarks</label>
+                                <textarea id="purchase-remarks" rows="2"></textarea>
                             </div>
                         </div>
 
                         <div class="modal-footer" style="margin-top: 20px;">
-                            <button type="button" class="btn btn-secondary" id="cancel-purchase-btn"
+                            <button type="button" class="btn btn-secondary"
                                 onclick="closePurchaseModal()">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Save Order</button>
+                            <button type="button" class="btn btn-primary" id="submit-batch-order-btn">Save Order
+                                Batch</button>
                         </div>
-                    </form>
+                    </div>
                 </div>
             </div>
         </main>

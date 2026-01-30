@@ -34,7 +34,7 @@ class ProductCreate(BaseModel):
 # =============================================================================
 
 class PurchaseOrderCreate(BaseModel):
-    """Schema for creating a new purchase order."""
+    """Schema for creating a new purchase order (Single Item - Legacy)."""
     order_placed_by: str
     product_id: Optional[int] = None
     part_code: Optional[str] = None
@@ -55,6 +55,36 @@ class PurchaseOrderCreate(BaseModel):
     delivery_date: Optional[str] = None  # ISO date string
     delivery_type: Optional[str] = "sea"
     remarks: Optional[str] = None
+
+
+class PurchaseItemCreate(BaseModel):
+    """Schema for an item in a purchase batch."""
+    product_id: Optional[int] = None
+    part_code: Optional[str] = None
+    item_description: Optional[str] = None
+    hsn_code: Optional[str] = None
+    category_name: Optional[str] = None
+    quantity: int = 1
+    price_currency: str = "USD"
+    price_usd: float = 0
+    price_inr: float = 0
+    price_rmb: float = 0
+    unit_price: float = 0
+    other_charges: float = 0
+    gst_applicable: bool = True
+    gst_percentage: float = 18
+    remarks: Optional[str] = None
+
+
+class PurchaseBatchCreate(BaseModel):
+    """Schema for creating a batch of purchase orders."""
+    order_placed_by: str
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    delivery_date: Optional[str] = None
+    delivery_type: Optional[str] = "sea"
+    global_remarks: Optional[str] = None
+    items: List[PurchaseItemCreate]
 
 
 class PurchaseOrderUpdate(BaseModel):

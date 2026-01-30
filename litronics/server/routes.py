@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder, PurchasePayment
-from schemas import ProductCreate, PurchaseOrderCreate, PurchaseOrderUpdate, PurchasePaymentCreate
+from schemas import ProductCreate, PurchaseOrderCreate, PurchaseOrderUpdate, PurchasePaymentCreate, PurchaseBatchCreate
 from purchase_ids import generate_purchase_id as _generate_purchase_id, generate_order_number as _generate_order_number
 
 
@@ -183,9 +183,30 @@ def get_product_by_part_code(part_code: str, db: Session = Depends(get_db)):
             "gst_percentage": product.gst_percentage,
             "landed_price_inr": product.landed_price_inr,
             "landed_price_usd": product.landed_price_usd,
-            "hsn": hsn_data,
         }
     }
+
+
+@router.get("/products/{product_id}/purchase-history")
+def get_product_purchase_history(product_id: int, limit: int = 3, db: Session = Depends(get_db)):
+    """Get the last N purchase prices for a product."""
+    history = db.query(PurchaseOrder).filter(
+        PurchaseOrder.product_id == product_id,
+        PurchaseOrder.is_active == True
+    ).order_by(PurchaseOrder.order_date.desc()).limit(limit).all()
+
+    result = []
+    for h in history:
+        result.append({
+            "order_date": h.order_date.strftime("%Y-%m-%d") if h.order_date else None,
+            "supplier_name": h.supplier_name,
+            "quantity": h.quantity,
+            "unit_price": h.unit_price,
+            "currency": h.price_currency,
+            "order_number": h.order_number
+        })
+    
+    return {"success": True, "data": result}
 
 
 # =============================================================================
@@ -531,6 +552,128 @@ def create_purchase_order(order: PurchaseOrderCreate, db: Session = Depends(get_
         "purchase_id": db_order.purchase_id,  # Return unique purchase ID
         "order_number": db_order.order_number,
         "message": "Purchase order created successfully"
+    }
+
+
+@router.post("/purchase-orders/batch")
+def create_purchase_order_batch(batch: PurchaseBatchCreate, db: Session = Depends(get_db)):
+    """Create a batch of purchase orders (one PO, multiple items)."""
+    conn = db.connection()
+    
+    # Generate common identifiers for the batch
+    # We use a loop/retry mechanism similar to single create to ensure uniqueness if needed
+    # (Though we removed UNIQUE constraints, it's good practice to generate valid IDs)
+    purchase_id = _generate_purchase_id(conn)
+    order_number = _generate_order_number(conn)
+    
+    # Common fields
+    order_date = datetime.now()
+    delivery_date = None
+    if batch.delivery_date:
+        try:
+            delivery_date = datetime.fromisoformat(batch.delivery_date.replace('Z', '+00:00'))
+        except:
+            pass
+
+    created_items = []
+    
+    try:
+        for item in batch.items:
+            # Get product details if product_id is provided
+            part_code = item.part_code
+            item_description = item.item_description
+            hsn_code = item.hsn_code
+            category_name = item.category_name
+            price_usd = item.price_usd
+            price_inr = item.price_inr
+            price_rmb = item.price_rmb
+            
+            if item.product_id:
+                product = db.query(Product).filter(Product.id == item.product_id).first()
+                if product:
+                    part_code = product.part_code
+                    item_description = product.description
+                    hsn_code = product.hsn.hsn_code if product.hsn else None
+                    category_name = product.category.category_name if product.category else None
+                    if not price_usd: price_usd = product.unit_price_usd
+                    if not price_inr: price_inr = product.unit_price_inr
+                    if not price_rmb: price_rmb = product.unit_price_rmb
+            
+            # Use batch supplier if item supplier not specified (usually same)
+            supplier_id = item.supplier_id if hasattr(item, 'supplier_id') else batch.supplier_id
+            supplier_name = item.supplier_name if hasattr(item, 'supplier_name') else batch.supplier_name
+            
+            if not supplier_name and batch.supplier_id:
+                sup = db.query(Supplier).filter(Supplier.id == batch.supplier_id).first()
+                if sup: supplier_name = sup.supplier_name
+
+            # Calculate totals
+            unit_price = item.unit_price or 0
+            quantity = item.quantity or 1
+            rate_to_inr = _get_currency_rate_to_inr(db, item.price_currency or "USD")
+            subtotal = (unit_price * rate_to_inr) * quantity
+            other_charges = item.other_charges or 0
+            total = subtotal + other_charges
+            
+            # Calculate GST
+            gst_amount = 0
+            if item.gst_applicable:
+                gst_percentage = item.gst_percentage or 18
+                gst_amount = total * (gst_percentage / 100)
+            else:
+                gst_percentage = 0
+            
+            final_total = total + gst_amount
+            
+            db_order = PurchaseOrder(
+                purchase_id=purchase_id,
+                order_number=order_number,
+                order_placed_by=batch.order_placed_by,
+                order_date=order_date,
+                product_id=item.product_id,
+                part_code=part_code,
+                item_description=item_description,
+                hsn_code=hsn_code,
+                category_name=category_name,
+                supplier_id=batch.supplier_id, 
+                supplier_name=supplier_name,
+                quantity=quantity,
+                price_currency=item.price_currency,
+                price_usd=price_usd,
+                price_inr=price_inr,
+                price_rmb=price_rmb,
+                unit_price=unit_price,
+                subtotal=subtotal,
+                other_charges=other_charges,
+                total=total,
+                gst_applicable=item.gst_applicable,
+                gst_percentage=gst_percentage,
+                gst_amount=gst_amount,
+                final_total=final_total,
+                delivery_date=delivery_date,
+                delivery_type=batch.delivery_type,
+                pi_status="open",
+                remarks=item.remarks or batch.global_remarks, # Merge or fallback
+            )
+            db.add(db_order)
+            created_items.append(db_order)
+
+        db.commit()
+        # Refresh first item to get IDs if needed
+        if created_items:
+            db.refresh(created_items[0])
+
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating batch order: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating batch: {str(e)}")
+
+    return {
+        "success": True,
+        "purchase_id": purchase_id,
+        "order_number": order_number,
+        "items_count": len(created_items),
+        "message": "Purchase order batch created successfully"
     }
 
 

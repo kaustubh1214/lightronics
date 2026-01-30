@@ -1,17 +1,20 @@
 /**
  * Litronics Product Management System - Purchase Module JavaScript
+ * Handles Purchase Orders, Batch Creation, and Item Tracking
  */
-
-// API_BASE is defined in app.js
 
 // =============================================================================
 // Global Data Storage
 // =============================================================================
 
-let purchaseOrdersData = [];
+let purchaseOrdersData = []; // Flat list of all items (since backend returns Line Items)
 let productsForPurchase = [];
 let suppliersForPurchase = [];
 let currencyRatesForPurchase = { USD: 83.50, RMB: 11.50, INR: 1 };
+
+// Batch Order State
+let currentBatchItems = [];
+let activeTab = 'orders'; // 'orders' or 'items'
 
 // Choices.js instances
 let productChoices = null;
@@ -24,20 +27,20 @@ let purchaseSupplierChoices = null;
 function initializePurchaseModule() {
     try {
         console.log('Initializing Purchase Module...');
-
-        // Check if critical elements exist
         const purchaseView = document.getElementById('purchase-view');
-        if (!purchaseView) {
-            console.error('Purchase view not found!');
-            return;
-        }
+        if (!purchaseView) return;
 
         initializePurchaseChoices();
         loadProductsForPurchase();
         loadSuppliersForPurchase();
         loadCurrencyRatesForPurchase();
-        loadPurchaseOrders();
+
+        // Initial Tab State
+        switchPurchaseTab('orders');
+        loadPurchaseOrders(); // Load data after setting tab
+
         setupPurchaseEventListeners();
+
         console.log('Purchase Module Initialized Successfully');
     } catch (e) {
         console.error('Error initializing purchase module:', e);
@@ -45,29 +48,28 @@ function initializePurchaseModule() {
 }
 
 // =============================================================================
-// Initialize Choices.js Dropdowns
+// Initialize Choices.js
 // =============================================================================
 
 function initializePurchaseChoices() {
-    // Product dropdown
     const productSelect = document.getElementById('purchase-product-id');
     if (productSelect) {
         if (productChoices) productChoices.destroy();
         productChoices = new Choices('#purchase-product-id', {
             searchEnabled: true,
-            searchPlaceholderValue: 'Search products by part code...',
+            searchPlaceholderValue: 'Search products...',
             itemSelectText: '',
             allowHTML: true,
             placeholder: true,
             placeholderValue: 'Select a product',
+            shouldSort: false
         });
     }
 
-    // Supplier dropdown
-    const supplierSelect = document.getElementById('purchase-supplier-id');
+    const supplierSelect = document.getElementById('purchase-common-supplier');
     if (supplierSelect) {
         if (purchaseSupplierChoices) purchaseSupplierChoices.destroy();
-        purchaseSupplierChoices = new Choices('#purchase-supplier-id', {
+        purchaseSupplierChoices = new Choices('#purchase-common-supplier', {
             searchEnabled: true,
             searchPlaceholderValue: 'Search suppliers...',
             itemSelectText: '',
@@ -79,146 +81,38 @@ function initializePurchaseChoices() {
 }
 
 // =============================================================================
-// Event Listeners
-// =============================================================================
-
-function setupPurchaseEventListeners() {
-    // Use closePurchaseModal for the Back/Cancel buttons
-    // Note: onclick is often used in HTML, but consistent listeners are good
-    const purchaseOrderForm = document.getElementById('purchase-order-form');
-    const purchaseSearchInput = document.getElementById('purchase-search-input');
-
-    // Form submission
-    if (purchaseOrderForm) {
-        purchaseOrderForm.addEventListener('submit', handlePurchaseFormSubmit);
-    }
-
-    // Payment Form
-    const paymentForm = document.getElementById('payment-form');
-    if (paymentForm) {
-        paymentForm.addEventListener('submit', handlePaymentSubmit);
-    }
-
-    // Search
-    if (purchaseSearchInput) {
-        purchaseSearchInput.addEventListener('input', handlePurchaseSearch);
-    }
-
-    // Product selection - auto-fill related fields
-    const productSelect = document.getElementById('purchase-product-id');
-    if (productSelect) {
-        productSelect.addEventListener('change', (e) => {
-            const productId = parseInt(e.target.value);
-            const product = productsForPurchase.find(p => p.id === productId);
-
-            if (product) {
-                // Auto-fill fields from product data
-                safeSetValue('purchase-part-code', product.part_code || '');
-                safeSetValue('purchase-item-description', product.description || '');
-                safeSetValue('purchase-hsn-code', product.hsn_code || '');
-                safeSetValue('purchase-category-name', product.category_name || '');
-
-                // Set reference prices
-                safeSetValue('purchase-price-usd', product.unit_price_usd || 0);
-                safeSetValue('purchase-price-rmb', product.unit_price_rmb || 0);
-                safeSetValue('purchase-price-inr', product.unit_price_inr || 0); // Use Base INR Price not Landed
-
-                // Dynamic Currency Dropdown
-                const currencySelect = document.getElementById('purchase-price-currency');
-                if (currencySelect) {
-                    currencySelect.innerHTML = ''; // Clear existing
-                    const opts = [];
-
-                    if ((product.unit_price_usd || 0) > 0) opts.push({ val: 'USD', text: 'USD (US Dollar)' });
-                    if ((product.unit_price_rmb || 0) > 0) opts.push({ val: 'RMB', text: 'RMB (Chinese Yuan)' });
-                    if ((product.unit_price_inr || 0) > 0) opts.push({ val: 'INR', text: 'INR (Indian Rupee)' });
-
-                    // Fallback if no prices set, or just use primary
-                    if (opts.length === 0) {
-                        // If no prices, maybe just show USD default or Primary
-                        opts.push({ val: 'USD', text: 'USD (US Dollar)' });
-                        opts.push({ val: 'RMB', text: 'RMB (Chinese Yuan)' });
-                        opts.push({ val: 'INR', text: 'INR (Indian Rupee)' });
-                    }
-
-                    opts.forEach(o => {
-                        const opt = document.createElement('option');
-                        opt.value = o.val;
-                        opt.textContent = o.text;
-                        currencySelect.appendChild(opt);
-                    });
-
-                    // Set default selection
-                    if (product.primary_currency && opts.some(o => o.val === product.primary_currency)) {
-                        currencySelect.value = product.primary_currency;
-                    } else if (opts.length > 0) {
-                        currencySelect.value = opts[0].val;
-                    }
-                }
-
-                // Set unit price based on selected currency
-                updatePurchaseCurrencySymbol();
-                updatePurchaseUnitPrice();
-                calculatePurchaseTotal();
-            }
-        });
-    }
-
-    // Currency change
-    const currencySelect = document.getElementById('purchase-price-currency');
-    if (currencySelect) {
-        currencySelect.addEventListener('change', () => {
-            updatePurchaseCurrencySymbol();
-            updatePurchaseUnitPrice();
-            calculatePurchaseTotal();
-        });
-    }
-
-    // Price/quantity changes - recalculate totals
-    ['purchase-unit-price', 'purchase-quantity', 'purchase-other-charges',
-        'purchase-gst-applicable', 'purchase-gst-percentage'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.addEventListener('input', calculatePurchaseTotal);
-                el.addEventListener('change', calculatePurchaseTotal);
-            }
-        });
-}
-
-function safeSetValue(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.value = value;
-}
-
-// =============================================================================
 // API Calls
 // =============================================================================
 
 async function fetchPurchaseAPI(endpoint, options = {}) {
     try {
-        const response = await fetch(`${API_BASE}${endpoint}`, {
+        const url = `${API_BASE}${endpoint}`;
+        const response = await fetch(url, {
             headers: { 'Content-Type': 'application/json', ...options.headers },
             ...options
         });
-        return await response.json();
+
+        const data = await response.json().catch(() => ({})); // Try to parse JSON anyway
+
+        if (!response.ok) {
+            const errorMsg = data.detail || data.error || `HTTP error! status: ${response.status}`;
+            throw new Error(errorMsg);
+        }
+        return data;
     } catch (error) {
         console.error('API Error:', error);
-        if (typeof showPurchaseToast === 'function') {
-            showPurchaseToast('Error connecting to server', 'error');
-        } else {
-            alert('API Error: ' + error.message);
-        }
+        showPurchaseToast(error.message, 'error');
         return { success: false, error: error.message };
     }
 }
 
 // =============================================================================
-// Load Data
+// Data Loading
 // =============================================================================
 
 async function loadProductsForPurchase() {
     const result = await fetchPurchaseAPI('/products');
-    if (result.success || result.data) {
+    if (result.success || result.data || Array.isArray(result)) {
         productsForPurchase = result.data || result;
 
         const choicesData = productsForPurchase.map(p => ({
@@ -228,6 +122,7 @@ async function loadProductsForPurchase() {
         }));
 
         if (productChoices) {
+            productChoices.clearStore();
             productChoices.setChoices(choicesData, 'value', 'label', true);
         }
     }
@@ -235,7 +130,7 @@ async function loadProductsForPurchase() {
 
 async function loadSuppliersForPurchase() {
     const result = await fetchPurchaseAPI('/suppliers');
-    if (result.success || result.data) {
+    if (result.success || result.data || Array.isArray(result)) {
         suppliersForPurchase = result.data || result;
 
         const choicesData = suppliersForPurchase.map(s => ({
@@ -244,14 +139,27 @@ async function loadSuppliersForPurchase() {
         }));
 
         if (purchaseSupplierChoices) {
+            purchaseSupplierChoices.clearStore();
             purchaseSupplierChoices.setChoices(choicesData, 'value', 'label', true);
+        }
+
+        // Populate Filter Dropdown
+        const filterSel = document.getElementById('filter-supplier');
+        if (filterSel) {
+            filterSel.innerHTML = '<option value="">All Suppliers</option>';
+            suppliersForPurchase.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.supplier_name.toLowerCase();
+                opt.textContent = s.supplier_name;
+                filterSel.appendChild(opt);
+            });
         }
     }
 }
 
 async function loadCurrencyRatesForPurchase() {
     const result = await fetchPurchaseAPI('/currency-rates');
-    if (result.success || result.data) {
+    if (result.success || result.data || Array.isArray(result)) {
         const data = result.data || result;
         data.forEach(rate => {
             currencyRatesForPurchase[rate.currency_code] = parseFloat(rate.rate_to_inr);
@@ -260,455 +168,647 @@ async function loadCurrencyRatesForPurchase() {
 }
 
 async function loadPurchaseOrders() {
+    console.log('Loading Purchase Orders...');
     const result = await fetchPurchaseAPI('/purchase-orders');
-    if (result.success || result.data) {
+    console.log('Purchase Orders Result:', result);
+
+    if (result.success || result.data || Array.isArray(result)) {
         purchaseOrdersData = result.data || result;
-        renderPurchaseOrders(purchaseOrdersData);
+        if (!Array.isArray(purchaseOrdersData)) purchaseOrdersData = [];
 
-        // Update stats
-        const totalOrders = document.getElementById('total-purchase-orders');
-        if (totalOrders) {
-            totalOrders.textContent = purchaseOrdersData.length;
-        }
-
-        const openOrders = document.getElementById('open-purchase-orders');
-        if (openOrders) {
-            openOrders.textContent = purchaseOrdersData.filter(o => o.pi_status === 'open').length;
-        }
-
-        const totalValue = document.getElementById('total-purchase-value');
-        if (totalValue && purchaseOrdersData.length > 0) {
-            const total = purchaseOrdersData.reduce((sum, o) => sum + parseFloat(o.final_total || 0), 0);
-            totalValue.textContent = `₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-        }
+        renderCurrentView();
+        updateStats();
+    } else {
+        console.warn('Failed to load purchase orders', result);
     }
 }
 
 // =============================================================================
-// Render Purchase Orders Table
+// Tab Switching & Rendering
 // =============================================================================
 
-function renderPurchaseOrders(orders) {
-    const purchaseOrdersTbody = document.getElementById('purchase-orders-tbody');
-    if (!purchaseOrdersTbody) return;
+window.switchPurchaseTab = function (tab) {
+    activeTab = tab;
 
-    purchaseOrdersTbody.innerHTML = '';
+    // Update buttons
+    document.querySelectorAll('.view-tabs button').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById(`tab-${tab}`);
+    if (activeBtn) activeBtn.classList.add('active');
 
-    if (!orders || orders.length === 0) {
-        purchaseOrdersTbody.innerHTML = `
-            <tr>
-                <td colspan="12" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                    No purchase orders found. Click "New Order" to create one.
-                </td>
-            </tr>
-        `;
+    // Toggle Filter Bar
+    const filterBar = document.getElementById('purchase-filter-bar');
+    if (filterBar) {
+        filterBar.style.display = tab === 'items' ? 'flex' : 'none';
+    }
+
+    // Refresh view
+    renderCurrentView();
+}
+
+function renderCurrentView() {
+    if (activeTab === 'orders') {
+        renderGroupedOrders();
+    } else {
+        renderFlatItems();
+    }
+}
+
+function renderGroupedOrders() {
+    const thead = document.getElementById('purchase-table-head');
+    const tbody = document.getElementById('purchase-orders-tbody');
+    if (!thead || !tbody) return;
+
+    // Headers for Order View
+    thead.innerHTML = `
+        <tr>
+            <th>Order # / Purchase ID</th>
+            <th>Placed By</th>
+            <th>Date</th>
+            <th>Supplier</th>
+            <th>Items</th>
+            <th>Total Value</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    `;
+
+    // Group items by purchase_id + order_number
+    const groups = {};
+    purchaseOrdersData.forEach(item => {
+        const key = item.purchase_id || item.order_number;
+        if (!groups[key]) {
+            groups[key] = {
+                id: item.purchase_id,
+                order_number: item.order_number,
+                order_placed_by: item.order_placed_by,
+                order_date: item.order_date,
+                supplier_name: item.supplier_name,
+                items_count: 0,
+                total_value: 0,
+                status: item.pi_status,
+                items: []
+            };
+        }
+        groups[key].items_count++;
+        groups[key].total_value += parseFloat(item.final_total || 0);
+        groups[key].items.push(item);
+    });
+
+    const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.order_date) - new Date(a.order_date));
+
+    tbody.innerHTML = '';
+    if (sortedGroups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 30px;">No orders found.</td></tr>';
         return;
     }
 
-    orders.forEach((order, index) => {
+    sortedGroups.forEach((group, index) => {
         const tr = document.createElement('tr');
         tr.className = 'animate-in';
         tr.style.animationDelay = `${index * 0.05}s`;
 
-        // Status badge color
-        const statusColors = {
-            'open': 'status-open',
-            'confirmed': 'status-confirmed',
-            'shipped': 'status-shipped',
-            'delivered': 'status-delivered',
-            'cancelled': 'status-cancelled'
-        };
-        const statusClass = statusColors[order.pi_status] || 'status-open';
-
-        // Format delivery date
-        const deliveryDate = order.delivery_date
-            ? new Date(order.delivery_date).toLocaleDateString('en-IN')
-            : '-';
-
-        // Currency symbol
-        const symbol = { USD: '$', RMB: '¥', INR: '₹' }[order.price_currency] || '₹';
+        const date = group.order_date ? new Date(group.order_date).toLocaleDateString('en-IN') : '-';
 
         tr.innerHTML = `
             <td>
-                <div style="display: flex; flex-direction: column;">
-                    <strong>${order.order_number}</strong>
-                    <small style="color: var(--text-muted); font-size: 0.75em;" title="Purchase ID for tracking">${order.purchase_id || '-'}</small>
-                </div>
+                <strong>${group.order_number}</strong><br>
+                <small class="text-muted" style="color:var(--text-muted)">${group.id}</small>
             </td>
-            <td>${order.order_placed_by}</td>
-            <td>${order.part_code || '-'}</td>
-            <td>${order.supplier_name || '-'}</td>
-            <td>${order.quantity}</td>
-            <td>${symbol}${parseFloat(order.unit_price || 0).toFixed(2)}</td>
-            <td>₹${parseFloat(order.other_charges || 0).toFixed(2)}</td>
-            <td>₹${parseFloat(order.gst_amount || 0).toFixed(2)}</td>
-            <td style="color: var(--secondary); font-weight: 600;">₹${parseFloat(order.final_total || 0).toFixed(2)}</td>
-            <td>${deliveryDate}</td>
-            <td><span class="status-badge ${statusClass}">${(order.pi_status || 'OPEN').toUpperCase()}</span></td>
+            <td>${group.order_placed_by}</td>
+            <td>${date}</td>
+            <td>${group.supplier_name || '-'}</td>
+            <td>${group.items_count}</td>
+            <td style="font-weight:600;">₹${group.total_value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+            <td><span class="status-badge status-${group.status}">${group.status?.toUpperCase() || 'OPEN'}</span></td>
             <td>
-                <button class="action-btn" onclick="viewPurchaseOrder(${order.id})" title="View" style="cursor:pointer; color: var(--primary);">
+                <button class="action-btn" onclick="openPurchaseModalWithItems('${group.id}')" title="View Items" style="margin-right: 5px;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                     </svg>
                 </button>
-                <button class="action-btn" onclick="editPurchaseOrder(${order.id})" title="Edit" style="cursor:pointer; color: var(--secondary);">
+                <button class="action-btn" onclick="editPurchaseOrder('${group.id}')" title="Edit Order">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                </button>
-                <button class="action-btn" onclick="deletePurchaseOrder(${order.id})" title="Delete" style="cursor:pointer; color: var(--danger);">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                     </svg>
                 </button>
             </td>
         `;
-        purchaseOrdersTbody.appendChild(tr);
+        tbody.appendChild(tr);
     });
 }
 
-// =============================================================================
-// View Switching Functions (Replaces Modal)
-// =============================================================================
+function renderFlatItems() {
+    const thead = document.getElementById('purchase-table-head');
+    const tbody = document.getElementById('purchase-orders-tbody');
+    if (!thead || !tbody) return;
 
-function openPurchaseModal(order = null) {
-    try {
-        console.log('Opening Purchase Form View', order);
-        const purchaseView = document.getElementById('purchase-view');
-        const purchaseFormView = document.getElementById('purchase-form-view');
-        const purchaseOrderForm = document.getElementById('purchase-order-form');
+    // Headers for Item View
+    thead.innerHTML = `
+        <tr>
+            <th>Purchase ID</th>
+            <th>Part Code</th>
+            <th>Supplier</th>
+            <th>Status</th>
+            <th>Delivery Date</th>
+            <th>Total (INR)</th>
+            <th>Action</th>
+        </tr>
+    `;
 
-        if (!purchaseView || !purchaseFormView || !purchaseOrderForm) {
-            alert('Error: View elements not found!');
-            return;
-        }
+    tbody.innerHTML = '';
+    if (purchaseOrdersData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 30px;">No items found.</td></tr>';
+        return;
+    }
 
-        // Hide List, Show Form
-        purchaseView.style.display = 'none';
-        purchaseFormView.style.display = 'block';
+    // Filter Logic
+    let filteredData = purchaseOrdersData;
 
-        purchaseOrderForm.reset();
+    // 1. Global Search
+    const globalQuery = document.getElementById('purchase-search-input')?.value.toLowerCase();
+    if (globalQuery) {
+        filteredData = filteredData.filter(item =>
+            (item.purchase_id && item.purchase_id.toLowerCase().includes(globalQuery)) ||
+            (item.order_number && item.order_number.toLowerCase().includes(globalQuery)) ||
+            (item.part_code && item.part_code.toLowerCase().includes(globalQuery)) ||
+            (item.supplier_name && item.supplier_name.toLowerCase().includes(globalQuery))
+        );
+    }
 
-        // Reset Choices
-        if (productChoices) productChoices.removeActiveItems();
-        if (purchaseSupplierChoices) purchaseSupplierChoices.removeActiveItems();
+    // 2. Specific Filters
+    const fId = document.getElementById('filter-purchase-id')?.value.toLowerCase();
+    const fPart = document.getElementById('filter-part-code')?.value.toLowerCase();
+    const fSupp = document.getElementById('filter-supplier')?.value.toLowerCase();
+    const fStat = document.getElementById('filter-status')?.value.toLowerCase();
+    const fDate = document.getElementById('filter-delivery-date')?.value;
 
-        const formTitle = document.getElementById('purchase-form-title');
-        if (formTitle) {
-            formTitle.textContent = order ? 'Edit Purchase Order' : 'New Purchase Order';
-        }
+    if (fId || fPart || fSupp || fStat || fDate) {
+        filteredData = filteredData.filter(item => {
+            const matchId = !fId || (item.purchase_id && item.purchase_id.toLowerCase().includes(fId));
+            const matchPart = !fPart || (item.part_code && item.part_code.toLowerCase().includes(fPart));
+            const matchSupp = !fSupp || (item.supplier_name && item.supplier_name.toLowerCase().includes(fSupp));
+            const matchStat = !fStat || (item.pi_status && item.pi_status.toLowerCase() === fStat);
 
-        // Set defaults
-        safeSetValue('purchase-quantity', 1);
-        safeSetValue('purchase-other-charges', 0);
-        const gstCheck = document.getElementById('purchase-gst-applicable');
-        if (gstCheck) gstCheck.checked = true;
-        safeSetValue('purchase-gst-percentage', 18);
+            let matchDate = true;
+            if (fDate && item.delivery_date) {
+                const itemDate = item.delivery_date.split('T')[0];
+                matchDate = itemDate === fDate;
+            } else if (fDate) matchDate = false;
 
-        if (order) {
-            // Edit mode - fill form
-            safeSetValue('purchase-order-id', order.id);
-            safeSetValue('purchase-order-placed-by', order.order_placed_by || '');
-            safeSetValue('purchase-part-code', order.part_code || '');
-            safeSetValue('purchase-item-description', order.item_description || '');
-            safeSetValue('purchase-hsn-code', order.hsn_code || '');
-            safeSetValue('purchase-category-name', order.category_name || '');
+            return matchId && matchPart && matchSupp && matchStat && matchDate;
+        });
+    }
 
-            if (order.supplier_id && purchaseSupplierChoices) {
-                purchaseSupplierChoices.setChoiceByValue(order.supplier_id.toString());
-            }
+    if (filteredData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 30px;">No items match filters.</td></tr>';
+        return;
+    }
 
-            safeSetValue('purchase-quantity', order.quantity || 1);
-            safeSetValue('purchase-price-currency', order.price_currency || 'USD');
-            safeSetValue('purchase-price-usd', order.price_usd || 0);
-            safeSetValue('purchase-price-rmb', order.price_rmb || 0);
-            safeSetValue('purchase-price-inr', order.price_inr || 0);
-            safeSetValue('purchase-unit-price', order.unit_price || 0);
-            safeSetValue('purchase-other-charges', order.other_charges || 0);
-            if (gstCheck) gstCheck.checked = order.gst_applicable !== false;
-            safeSetValue('purchase-gst-percentage', order.gst_percentage || 18);
+    filteredData.forEach((item, index) => {
+        const tr = document.createElement('tr');
+        tr.className = 'animate-in';
+        tr.style.animationDelay = `${index * 0.05}s`;
 
-            safeSetValue('purchase-delivery-date', order.delivery_date ? order.delivery_date.split('T')[0] : '');
-            safeSetValue('purchase-delivery-type', order.delivery_type || 'sea');
-            safeSetValue('purchase-remarks', order.remarks || '');
-        } else {
-            safeSetValue('purchase-order-id', '');
-        }
+        const deliveryDate = item.delivery_date ? new Date(item.delivery_date).toLocaleDateString('en-IN') : '-';
 
-        updatePurchaseCurrencySymbol();
-        calculatePurchaseTotal();
+        tr.innerHTML = `
+            <td>${item.purchase_id}</td>
+            <td><strong>${item.part_code}</strong><br><small style="color:var(--text-muted)">${item.item_description?.substring(0, 25)}...</small></td>
+            <td>${item.supplier_name || '-'}</td>
+            <td><span class="status-badge status-${item.pi_status}">${item.pi_status.toUpperCase()}</span></td>
+            <td>${deliveryDate}</td>
+            <td>₹${parseFloat(item.final_total || 0).toFixed(2)}</td>
+            <td>
+                ${(item.pi_status === 'open' || item.pi_status === 'confirmed') ?
+                `<button class="btn btn-sm btn-primary" onclick="updateItemStatus(${item.id}, 'shipped')" title="Mark as Ready to Dispatch">Ready Dispatch</button>` :
+                (item.pi_status === 'shipped' ? `<span style="color:var(--success)">En Route</span>` :
+                    (item.pi_status === 'delivered' ? `<span style="color:var(--text-muted)">Delivered</span>` : '-'))}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
 
-    } catch (e) {
-        console.error('Error opening form view:', e);
-        alert('Error opening form: ' + e.message);
+async function updateItemStatus(itemId, status) {
+    const result = await fetchPurchaseAPI(`/purchase-orders/${itemId}/status?status=${status}`, { method: 'PATCH' });
+    if (result.success) {
+        showPurchaseToast(`Status updated to ${status}`, 'success');
+        loadPurchaseOrders();
     }
 }
 
-function closePurchaseModal() {
-    const purchaseView = document.getElementById('purchase-view');
-    const purchaseFormView = document.getElementById('purchase-form-view');
+// =============================================================================
+// Batch / Add Item Logic
+// =============================================================================
 
-    if (purchaseFormView) purchaseFormView.style.display = 'none';
-    if (purchaseView) purchaseView.style.display = 'block';
+function setupPurchaseEventListeners() {
+    // Product Select - Fetch Details & Last Prices
+    const productSelect = document.getElementById('purchase-product-id');
+    if (productSelect) {
+        productSelect.addEventListener('change', async (e) => {
+            const productId = parseInt(e.target.value);
+            if (!productId) return;
+
+            const product = productsForPurchase.find(p => p.id === productId);
+            if (product) {
+                safeSetValue('purchase-part-code', product.part_code || '');
+                safeSetValue('purchase-item-description', product.description || '');
+                safeSetValue('purchase-hsn-code', product.hsn_code || '');
+                safeSetValue('purchase-category-name', product.category_name || '');
+
+                safeSetValue('purchase-price-usd', product.unit_price_usd || 0);
+                safeSetValue('purchase-price-rmb', product.unit_price_rmb || 0);
+                safeSetValue('purchase-price-inr', product.unit_price_inr || 0);
+
+                const currSel = document.getElementById('purchase-price-currency');
+                if (currSel) {
+                    currSel.value = product.primary_currency || 'USD';
+                    updateUnitDisplay();
+                }
+
+                loadLast3Prices(productId);
+            }
+        });
+    }
+
+    // Currency Change
+    const currSel = document.getElementById('purchase-price-currency');
+    if (currSel) currSel.addEventListener('change', updateUnitDisplay);
+
+    // Search
+    const searchInput = document.getElementById('purchase-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => renderCurrentView());
+    }
+
+    // Filter Inputs
+    ['filter-purchase-id', 'filter-part-code', 'filter-supplier', 'filter-status', 'filter-delivery-date'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', renderCurrentView);
+    });
+
+    // Buttons
+    document.getElementById('add-item-to-batch-btn').addEventListener('click', addItemToBatch);
+    document.getElementById('submit-batch-order-btn').addEventListener('click', submitBatchOrder);
 }
 
-// =============================================================================
-// Form Submission
-// =============================================================================
+function updateUnitDisplay() {
+    const currency = document.getElementById('purchase-price-currency').value;
+    const symEl = document.getElementById('purchase-currency-symbol');
+    const unitIn = document.getElementById('purchase-unit-price');
 
-async function handlePurchaseFormSubmit(e) {
-    e.preventDefault();
+    const symbols = { USD: '$', RMB: '¥', INR: '₹' };
+    if (symEl) symEl.textContent = symbols[currency] || '$';
 
-    const orderId = document.getElementById('purchase-order-id').value;
-    const isEdit = orderId && orderId !== '';
+    if (unitIn) {
+        if (currency === 'USD') unitIn.value = document.getElementById('purchase-price-usd').value;
+        else if (currency === 'RMB') unitIn.value = document.getElementById('purchase-price-rmb').value;
+        else unitIn.value = document.getElementById('purchase-price-inr').value;
+    }
+}
 
-    // ... validation ...
-    const data = {
-        order_placed_by: document.getElementById('purchase-order-placed-by').value,
-        product_id: parseInt(document.getElementById('purchase-product-id').value) || null,
+async function loadLast3Prices(productId) {
+    const display = document.getElementById('last-prices-display');
+    const list = document.getElementById('last-prices-list');
+    if (!display || !list) return;
+
+    display.style.display = 'none';
+    list.innerHTML = 'Loading...';
+
+    const result = await fetchPurchaseAPI(`/products/${productId}/purchase-history`);
+    if (result.success) {
+        if (result.data && result.data.length > 0) {
+            display.style.display = 'block';
+            list.innerHTML = '';
+
+            result.data.forEach(h => {
+                const div = document.createElement('div');
+                div.style.background = 'var(--bg-input)';
+                div.style.padding = '5px 10px';
+                div.style.border = '1px solid var(--border-color)';
+                div.style.borderRadius = '4px';
+                div.style.fontSize = '0.85em';
+
+                div.innerHTML = `
+                    <span style="color:var(--text-muted); margin-right:5px;">${h.order_date}</span> 
+                    <strong>${h.currency} ${parseFloat(h.unit_price).toFixed(2)}</strong>
+                    <span style="color:var(--text-muted); font-size: 0.9em; margin-left:5px;">(${h.supplier_name})</span>
+                `;
+                list.appendChild(div);
+            });
+        } else {
+            display.style.display = 'block';
+            list.innerHTML = '<span style="color:var(--text-muted); font-style: italic;">No purchase history.</span>';
+        }
+    }
+}
+
+function addItemToBatch() {
+    console.log('Adding item to batch...');
+    const pid = document.getElementById('purchase-product-id').value;
+    const qty = document.getElementById('purchase-quantity').value;
+    const price = document.getElementById('purchase-unit-price').value;
+    const currency = document.getElementById('purchase-price-currency').value;
+
+    console.log('Values:', { pid, qty, price, currency });
+
+    if (!pid || !qty || !price) {
+        showPurchaseToast('Please select product, quantity and price.', 'error');
+        return;
+    }
+
+    const product = productsForPurchase.find(p => p.id == pid);
+    if (!product) return;
+
+    // Use already defined currency variable
+    const rate = currencyRatesForPurchase[currency] || 1;
+    const otherCharges = parseFloat(document.getElementById('purchase-other-charges').value || 0);
+    const totalINR = (parseFloat(price) * rate * parseInt(qty)) + otherCharges;
+
+    const item = {
+        tempId: Date.now(),
+        product_id: parseInt(pid),
         part_code: document.getElementById('purchase-part-code').value,
         item_description: document.getElementById('purchase-item-description').value,
         hsn_code: document.getElementById('purchase-hsn-code').value,
         category_name: document.getElementById('purchase-category-name').value,
-        supplier_id: parseInt(document.getElementById('purchase-supplier-id').value) || null,
-        quantity: parseInt(document.getElementById('purchase-quantity').value) || 1,
-        price_currency: document.getElementById('purchase-price-currency').value,
+        quantity: parseInt(qty),
+        price_currency: currency,
         price_usd: parseFloat(document.getElementById('purchase-price-usd').value) || 0,
         price_rmb: parseFloat(document.getElementById('purchase-price-rmb').value) || 0,
         price_inr: parseFloat(document.getElementById('purchase-price-inr').value) || 0,
-        unit_price: parseFloat(document.getElementById('purchase-unit-price').value) || 0,
-        other_charges: parseFloat(document.getElementById('purchase-other-charges').value) || 0,
+        unit_price: parseFloat(price),
+        other_charges: otherCharges,
         gst_applicable: document.getElementById('purchase-gst-applicable').checked,
         gst_percentage: parseFloat(document.getElementById('purchase-gst-percentage').value) || 18,
-        delivery_date: document.getElementById('purchase-delivery-date').value || null,
-        delivery_type: document.getElementById('purchase-delivery-type').value,
-        remarks: document.getElementById('purchase-remarks').value,
+        total_estimated: totalINR
     };
 
-    const endpoint = isEdit ? `/purchase-orders/${orderId}` : '/purchase-orders';
-    const method = isEdit ? 'PUT' : 'POST';
+    currentBatchItems.push(item);
+    renderBatchItems();
 
-    const result = await fetchPurchaseAPI(endpoint, {
-        method: method,
-        body: JSON.stringify(data)
+    // Reset inputs
+    if (productChoices) {
+        productChoices.removeActiveItems();
+        productChoices.setChoiceByValue('');
+    }
+
+    const productSelect = document.getElementById('purchase-product-id');
+    if (productSelect) productSelect.value = "";
+
+    safeSetValue('purchase-quantity', 1);
+    safeSetValue('purchase-other-charges', 0);
+    safeSetValue('purchase-unit-price', '');
+    safeSetValue('purchase-part-code', '');
+    safeSetValue('purchase-item-description', '');
+    safeSetValue('purchase-hsn-code', '');
+    safeSetValue('purchase-category-name', '');
+
+    document.getElementById('last-prices-display').style.display = 'none';
+}
+
+function renderBatchItems() {
+    const tbody = document.getElementById('batch-items-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (currentBatchItems.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items added.</td></tr>';
+        return;
+    }
+
+    currentBatchItems.forEach((item, index) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${item.part_code}</td>
+            <td>${item.item_description?.substring(0, 20) || ''}</td>
+            <td>${item.quantity}</td>
+            <td>${item.price_currency} ${item.unit_price}</td>
+            <td>₹${item.total_estimated.toFixed(2)}</td>
+            <td>
+                <button class="action-btn" onclick="removeItemFromBatch(${index})" style="color:red;">&times;</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+window.removeItemFromBatch = function (index) {
+    currentBatchItems.splice(index, 1);
+    renderBatchItems();
+}
+
+window.clearPurchaseFilters = function () {
+    ['filter-purchase-id', 'filter-part-code', 'filter-supplier', 'filter-status', 'filter-delivery-date'].forEach(id => {
+        safeSetValue(id, '');
+    });
+    renderCurrentView();
+}
+
+async function submitBatchOrder() {
+    const placedBy = document.getElementById('purchase-order-placed-by').value;
+    const supplierId = document.getElementById('purchase-common-supplier').value;
+
+    if (!placedBy || !supplierId) {
+        showPurchaseToast('Please fill Order Placed By and Supplier.', 'error');
+        return;
+    }
+
+
+
+
+    if (currentBatchItems.length === 0) {
+        showPurchaseToast('Please add at least one item.', 'error');
+        return;
+    }
+
+    const supplier = suppliersForPurchase.find(s => s.id == supplierId);
+
+    const payload = {
+        order_placed_by: placedBy,
+        supplier_id: parseInt(supplierId),
+        supplier_name: supplier ? supplier.supplier_name : '',
+        delivery_date: document.getElementById('purchase-delivery-date').value || null,
+        delivery_type: document.getElementById('purchase-delivery-type').value,
+        global_remarks: document.getElementById('purchase-remarks').value,
+        items: currentBatchItems
+    };
+
+    const result = await fetchPurchaseAPI('/purchase-orders/batch', {
+        method: 'POST',
+        body: JSON.stringify(payload)
     });
 
-    if (result.success || result.id) {
-        showPurchaseToast(
-            isEdit ? 'Purchase order updated successfully!' : `Purchase order ${result.order_number} created!`,
-            'success'
-        );
+    if (result.success) {
+        showPurchaseToast('Batch created successfully!', 'success');
         closePurchaseModal();
         loadPurchaseOrders();
     } else {
-        showPurchaseToast(result.error || result.detail || 'Error saving purchase order', 'error');
+        showPurchaseToast(result.error || result.detail || 'Failed to create batch.', 'error');
     }
 }
 
 // =============================================================================
-// Search
+// Helper
 // =============================================================================
 
-function handlePurchaseSearch(e) {
-    const query = e.target.value.toLowerCase();
-    const rows = document.getElementById('purchase-orders-tbody').querySelectorAll('tr');
-
-    rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(query) ? '' : 'none';
-    });
+function safeSetValue(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
 }
 
-// =============================================================================
-// Helper Functions
-// =============================================================================
+function updateStats() {
+    const totalOrders = document.getElementById('total-purchase-orders');
+    if (totalOrders) totalOrders.textContent = purchaseOrdersData.length;
 
-function updatePurchaseCurrencySymbol() {
-    const currencyEl = document.getElementById('purchase-price-currency');
-    if (currencyEl) {
-        const symbol = { 'USD': '$', 'RMB': '¥', 'INR': '₹' }[currencyEl.value] || '$';
-        const sEl = document.getElementById('purchase-currency-symbol');
-        if (sEl) sEl.textContent = symbol;
+    const openOrders = document.getElementById('open-purchase-orders');
+    if (openOrders) openOrders.textContent = purchaseOrdersData.filter(o => o.pi_status === 'open').length;
+
+    const totalValue = document.getElementById('total-purchase-value');
+    if (totalValue) {
+        const total = purchaseOrdersData.reduce((sum, o) => sum + parseFloat(o.final_total || 0), 0);
+        totalValue.textContent = `₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
     }
 }
 
-function updatePurchaseUnitPrice() {
-    const currencyEl = document.getElementById('purchase-price-currency');
-    if (!currencyEl) return;
-    let price = 0;
-    if (currencyEl.value === 'USD') price = parseFloat(document.getElementById('purchase-price-usd').value) || 0;
-    else if (currencyEl.value === 'RMB') price = parseFloat(document.getElementById('purchase-price-rmb').value) || 0;
-    else price = parseFloat(document.getElementById('purchase-price-inr').value) || 0;
-    const unitPriceEl = document.getElementById('purchase-unit-price');
-    if (unitPriceEl) unitPriceEl.value = price;
-}
-
-function calculatePurchaseTotal() {
-    const unitPrice = parseFloat(document.getElementById('purchase-unit-price').value) || 0;
-    const quantity = parseInt(document.getElementById('purchase-quantity').value) || 1;
-    const otherCharges = parseFloat(document.getElementById('purchase-other-charges').value) || 0;
-    const gstCheck = document.getElementById('purchase-gst-applicable');
-    const gstApplicable = gstCheck ? gstCheck.checked : true;
-    const gstPercentage = parseFloat(document.getElementById('purchase-gst-percentage').value) || 18;
-    const currency = document.getElementById('purchase-price-currency').value;
-    const rate = currencyRatesForPurchase[currency] || 1;
-
-    // Convert to INR for display
-    const unitPriceInr = unitPrice * rate;  // If currency is INR, rate is 1. If USD, rate is 83.5.
-    // wait, logic in inline was: (unitPrice * rate) * quantity.
-    // Let's stick to simple logic matching existing code.
-
-    const subtotal = (unitPrice * rate) * quantity;
-    const total = subtotal + otherCharges;
-    const gstAmount = gstApplicable ? total * (gstPercentage / 100) : 0;
-    const finalTotal = total + gstAmount;
-
-    const setC = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = '₹' + v.toFixed(2); };
-    setC('calc-purchase-subtotal', subtotal);
-    setC('calc-purchase-other', otherCharges);
-    setC('calc-purchase-total', total);
-    setC('calc-purchase-gst', gstAmount);
-    setC('calc-purchase-final', finalTotal);
-}
-
-// =============================================================================
-// Toast Notification
-// =============================================================================
-
-function showPurchaseToast(message, type = 'success') {
+function showPurchaseToast(msg, type = 'success') {
     const toast = document.getElementById('toast');
     if (toast) {
         toast.className = `toast ${type} show`;
-        const msg = toast.querySelector('.toast-message');
-        if (msg) msg.textContent = message;
-
-        setTimeout(() => {
-            toast.classList.remove('show');
-        }, 3000);
-    }
-}
-
-// =============================================================================
-// Export for Global Access
-// =============================================================================
-
-function viewPurchaseOrder(id) {
-    const order = purchaseOrdersData.find(o => o.id === id);
-    if (order) {
-        // Simple view implementation - reuse edit form in read-only or just populate
-        // For now, let's just use the edit modal as a view
-        openPurchaseModal(order);
-    }
-}
-
-function editPurchaseOrder(id) {
-    const order = purchaseOrdersData.find(o => o.id === id);
-    if (order) {
-        openPurchaseModal(order);
-    }
-}
-
-async function deletePurchaseOrder(id) {
-    if (!confirm('Are you sure you want to delete this purchase order?')) return;
-
-    const result = await fetchPurchaseAPI(`/purchase-orders/${id}`, { method: 'DELETE' });
-    if (result.success) {
-        showPurchaseToast('Purchase order deleted successfully');
-        loadPurchaseOrders();
+        const m = toast.querySelector('.toast-message');
+        if (m) m.textContent = msg;
+        setTimeout(() => toast.classList.remove('show'), 3000);
     } else {
-        showPurchaseToast(result.error || result.detail || 'Error deleting order', 'error');
+        alert(msg);
     }
 }
 
-window.viewPurchaseOrder = viewPurchaseOrder;
-window.editPurchaseOrder = editPurchaseOrder;
-window.deletePurchaseOrder = deletePurchaseOrder;
-window.initializePurchaseModule = initializePurchaseModule;
-window.openPurchaseModal = openPurchaseModal;
-window.closePurchaseModal = closePurchaseModal;
+// Modal Control
+window.openPurchaseModal = function () {
+    const purchaseView = document.getElementById('purchase-view');
+    const purchaseFormView = document.getElementById('purchase-form-view');
+    if (purchaseView && purchaseFormView) {
+        purchaseView.style.display = 'none';
+        purchaseFormView.style.display = 'block';
+
+        // Refresh data to ensure new products/suppliers are available
+        loadProductsForPurchase();
+        loadSuppliersForPurchase();
+
+        currentBatchItems = [];
+        renderBatchItems();
+        safeSetValue('purchase-order-placed-by', '');
+        safeSetValue('purchase-remarks', '');
+        document.getElementById('last-prices-display').style.display = 'none';
+    }
+}
+
+window.closePurchaseModal = function () {
+    const purchaseView = document.getElementById('purchase-view');
+    const purchaseFormView = document.getElementById('purchase-form-view');
+    if (purchaseView && purchaseFormView) {
+        purchaseFormView.style.display = 'none';
+        purchaseView.style.display = 'block';
+    }
+}
+
+window.editPurchaseOrder = function (purchaseId) {
+    const orders = purchaseOrdersData.filter(o => o.purchase_id === purchaseId);
+    if (orders.length === 0) return;
+
+    const first = orders[0];
+
+    // Open Modal
+    openPurchaseModal(); // This resets form, so we populate after
+
+    // Populate Header Fields
+    safeSetValue('purchase-order-placed-by', first.order_placed_by);
+    safeSetValue('purchase-remarks', ''); // Global remarks might not be fetched, leave empty for now or fix backend
+
+    // Set Supplier
+    if (purchaseSupplierChoices && first.supplier_name) {
+        const supplier = suppliersForPurchase.find(s => s.supplier_name === first.supplier_name);
+        if (supplier) purchaseSupplierChoices.setChoiceByValue(supplier.id);
+    }
+
+    // Set Delivery Date/Type (Try to find most common or first)
+    // Format date to YYYY-MM-DD for input
+    if (first.delivery_date) {
+        const d = new Date(first.delivery_date);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        safeSetValue('purchase-delivery-date', `${yyyy}-${mm}-${dd}`);
+    }
+    // safeSetValue('purchase-delivery-type', first.delivery_type); // If available
+
+    // Populate Items
+    currentBatchItems = orders.map(o => ({
+        tempId: Date.now() + Math.random(),
+        product_id: null, // Product ID might be unknown if not in local store, but we display text
+        part_code: o.part_code,
+        item_description: o.item_description,
+        hsn_code: o.hsn_code,
+        category_name: o.category_name,
+        quantity: o.quantity,
+        price_currency: o.price_currency,
+        unit_price: o.unit_price,
+        // Calculate fields if missing
+        price_usd: o.price_usd || 0,
+        price_rmb: o.price_rmb || 0,
+        price_inr: o.price_inr || 0,
+        other_charges: o.other_charges || 0,
+        gst_applicable: o.gst_applicable,
+        gst_percentage: o.gst_percentage || 18,
+        total_estimated: o.final_total || o.total || 0
+    }));
+
+    renderBatchItems();
+
+    showPurchaseToast('Order loaded for editing. Note: Saving will create a NEW batch currently.', 'info');
+}
+
+window.openPurchaseModalWithItems = function (purchaseId) {
+    switchPurchaseTab('items');
+    const searchInput = document.getElementById('purchase-search-input');
+    if (searchInput) {
+        searchInput.value = purchaseId;
+        searchInput.dispatchEvent(new Event('input'));
+    }
+}
 
 // =============================================================================
 // Payment Functions
 // =============================================================================
 
 window.openPaymentSummaryModal = function () {
-    console.log('--- Opening Payment Summary Modal ---');
     const modal = document.getElementById('payment-summary-modal');
-
     if (modal) {
-        // Just add the active class; CSS handles display/opacity/visibility
         modal.classList.add('active');
-
-        // Failsafe: Explicitly set styles just in case CSS fails to load or conflict
+        // Ensure visibility styles if CSS issues
         modal.style.display = 'flex';
-        modal.style.position = 'fixed'; // Ensure it's fixed
+        modal.style.position = 'fixed';
         modal.style.top = '0';
         modal.style.left = '0';
-        modal.style.width = '100vw'; // Explicit full width
-        modal.style.height = '100vh'; // Explicit full height
-        modal.style.backgroundColor = 'rgba(0,0,0,0.8)'; // Explicit bg
-        modal.style.opacity = '1';
-        modal.style.visibility = 'visible';
-        modal.style.zIndex = '9999'; // Nuclear option z-index
-        document.body.style.overflow = 'hidden'; // Prevent background scrolling
-
-        // Move to end of body to avoid stacking context issues
+        modal.style.width = '100vw';
+        modal.style.height = '100vh';
+        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        modal.style.zIndex = '9999';
         document.body.appendChild(modal);
 
-        console.log('Class "active" added to payment modal');
-        console.log('Modal computed display:', window.getComputedStyle(modal).display);
-        console.log('Modal computed zIndex:', window.getComputedStyle(modal).zIndex);
-        console.log('Modal computed visibility:', window.getComputedStyle(modal).visibility);
-
-        // Load content
         const tbody = document.getElementById('payment-summary-tbody');
-        if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 30px;">Loading data...</td></tr>';
-        }
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Loading...</td></tr>';
 
-        loadPaymentSummary().then(() => {
-            console.log('Payment summary data loaded successfully');
-        }).catch(err => {
-            console.error('Failed to load payment summary:', err);
-            if (tbody) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: var(--danger);">Error: ${err.message}</td></tr>`;
-            }
-        });
-    } else {
-        console.error('CRITICAL: Element #payment-summary-modal not found in DOM');
-        alert('Internal Error: Payment modal element missing. Please check index.html.');
+        loadPaymentSummary();
     }
 };
 
-// Global Safety: Close modals on Escape key
-document.addEventListener('keydown', function (event) {
-    if (event.key === "Escape") {
-        if (window.closePaymentSummaryModal) window.closePaymentSummaryModal();
-        if (window.closePaymentFormModal) window.closePaymentFormModal();
-        if (window.closePurchaseModal) window.closePurchaseModal();
-        if (typeof closeModal === 'function') closeModal(); // Product modal
-    }
-});
-
-function closePaymentSummaryModal() {
+window.closePaymentSummaryModal = function () {
     const modal = document.getElementById('payment-summary-modal');
     if (modal) {
         modal.classList.remove('active');
-        // Clean up explicit styles
-        modal.style.display = '';
-        modal.style.position = '';
-        modal.style.top = '';
-        modal.style.left = '';
-        modal.style.width = '';
-        modal.style.height = '';
-        modal.style.backgroundColor = '';
-        modal.style.opacity = '';
-        modal.style.visibility = '';
-        modal.style.zIndex = '';
-        document.body.style.overflow = '';
+        modal.style.display = 'none'; // Force hide
     }
 }
 
@@ -718,11 +818,9 @@ async function loadPaymentSummary() {
 
     try {
         const result = await fetchPurchaseAPI('/suppliers/payment-summary');
-
         if (result.success) {
             tbody.innerHTML = '';
-            // Check if result.data is array or if result IS the array (handling both formats just in case)
-            const data = Array.isArray(result.data) ? result.data : (Array.isArray(result) ? result : []);
+            const data = Array.isArray(result.data) ? result.data : [];
 
             if (data.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No pending payments.</td></tr>';
@@ -731,183 +829,29 @@ async function loadPaymentSummary() {
 
             data.forEach(item => {
                 const tr = document.createElement('tr');
-
-                // Payment status badge styling
                 const statusColor = item.payment_status === 'Paid' ? 'var(--success)' :
                     (item.payment_status === 'Partial' ? 'var(--warning)' : 'var(--danger)');
 
                 tr.innerHTML = `
+                    <td><strong>${item.supplier_name}</strong><br><small>${item.supplier_code || ''}</small></td>
+                    <td>${item.total_orders} orders</td>
+                    <td>₹${parseFloat(item.total_purchase_value).toFixed(2)}</td>
+                    <td>₹${parseFloat(item.total_paid).toFixed(2)}</td>
+                    <td style="color:red; font-weight:bold;">₹${parseFloat(item.balance_pending).toFixed(2)}</td>
+                    <td><span class="status-badge" style="background:${statusColor}; color:white;">${item.payment_status}</span></td>
                     <td>
-                        <div style="display: flex; flex-direction: column;">
-                            <strong>${item.supplier_name}</strong>
-                            <small style="color: var(--text-muted);">${item.supplier_code || ''}</small>
-                        </div>
-                    </td>
-                    <td>
-                        <span title="Total: ${item.total_orders} | Open: ${item.open_orders} | Delivered: ${item.delivered_orders}">
-                            ${item.total_orders} orders
-                        </span>
-                    </td>
-                    <td>₹${parseFloat(item.total_purchase_value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td style="color: var(--success);">₹${parseFloat(item.total_paid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td style="color: var(--danger); font-weight: bold;">₹${parseFloat(item.balance_pending || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                    <td>
-                        <span class="status-badge" style="background: ${statusColor}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75em;">
-                            ${item.payment_status}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="btn btn-sm" style="margin-right: 5px; background: var(--bg-input); color: var(--text-primary);" 
-                                onclick="viewSupplierPaymentDetails(${item.supplier_id})" title="View Details">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                        </button>
                         ${item.balance_pending > 0 ? `
-                        <button class="btn btn-sm btn-primary" onclick="openPaymentFormModal(${item.supplier_id}, '${item.supplier_name.replace(/'/g, "\\'")}', ${item.balance_pending})">
-                            Pay
-                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="alert('Payment feature enabled in full version')">Pay</button>
                         ` : ''}
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
-        } else {
-            console.error('API Error:', result);
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Error loading data. ' + (result.error || result.detail || '') + '</td></tr>';
         }
     } catch (e) {
-        console.error('Load Summary Error:', e);
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Connection Error</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="7">Error: ${e.message}</td></tr>`;
     }
 }
 
-// View detailed payment information for a supplier
-async function viewSupplierPaymentDetails(supplierId) {
-    try {
-        const result = await fetchPurchaseAPI(`/suppliers/${supplierId}/payment-details`);
-
-        if (result.success) {
-            // Create a detailed view modal or alert
-            const data = result.data;
-            const supplier = data.supplier || {}; // Fallback if structure differs
-            // Actually API returns: {id:..., supplier_id:..., ...} ? 
-            // Wait, let's check routes.py response structure for /suppliers/{id}/payment-details
-            // It returns {success:true, data: {supplier:..., summary:..., orders:..., payments:...}}
-            // So data.supplier is correct.
-
-            const summary = data.summary || {};
-            const orders = data.orders || [];
-
-            let ordersList = orders.map(o =>
-                `• ${o.order_number}: ${o.part_code || 'N/A'} - ₹${(o.final_total || 0).toLocaleString('en-IN')} (${o.status})`
-            ).join('\n');
-
-            if (!ordersList) ordersList = 'No orders found';
-
-            const message = `
-=== ${supplier.name || supplier.supplier_name || 'Supplier'} Payment Details ===
-
-Summary:
-- Total Orders: ${summary.total_orders}
-- Total Value: ₹${(summary.total_order_value || 0).toLocaleString('en-IN')}
-- Total Paid: ₹${(summary.total_paid || 0).toLocaleString('en-IN')}
-- Balance Pending: ₹${(summary.balance_pending || 0).toLocaleString('en-IN')}
-
-Orders:
-${ordersList}
-            `;
-
-            alert(message.trim());
-        } else {
-            showPurchaseToast('Error loading supplier details', 'error');
-        }
-    } catch (e) {
-        console.error('Error:', e);
-        showPurchaseToast('Error loading supplier details', 'error');
-    }
-}
-
-// Export the new function
-window.viewSupplierPaymentDetails = viewSupplierPaymentDetails;
-
-window.openPaymentFormModal = function (supplierId, supplierName, balance) {
-    const modal = document.getElementById('payment-form-modal');
-    if (modal) {
-        document.getElementById('pay-supplier-id').value = supplierId;
-        document.getElementById('pay-supplier-name').value = supplierName;
-        document.getElementById('pay-amount').value = balance > 0 ? balance : '';
-        document.getElementById('pay-date').value = new Date().toISOString().split('T')[0];
-        document.getElementById('pay-reference').value = '';
-        document.getElementById('pay-remarks').value = '';
-
-        modal.classList.add('active');
-        // Failsafe styles
-        modal.style.display = 'flex';
-        modal.style.position = 'fixed';
-        modal.style.top = '0';
-        modal.style.left = '0';
-        modal.style.width = '100vw';
-        modal.style.height = '100vh';
-        modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
-        modal.style.opacity = '1';
-        modal.style.visibility = 'visible';
-        modal.style.zIndex = '10002'; // Higher than summary modal (9999)
-
-        // Move to end of body to ensure it sits on top
-        document.body.appendChild(modal);
-
-        console.log('Opening Payment Form Modal for:', supplierName);
-    }
-};
-
-function closePaymentFormModal() {
-    const modal = document.getElementById('payment-form-modal');
-    if (modal) {
-        modal.classList.remove('active');
-        modal.style.display = '';
-        modal.style.position = '';
-        modal.style.top = '';
-        modal.style.left = '';
-        modal.style.width = '';
-        modal.style.height = '';
-        modal.style.backgroundColor = '';
-        modal.style.opacity = '';
-        modal.style.visibility = '';
-        modal.style.zIndex = '';
-        // Note: we don't reset overflow here if summary modal is still open
-    }
-}
-
-async function handlePaymentSubmit(e) {
-    e.preventDefault();
-
-    const data = {
-        supplier_id: parseInt(document.getElementById('pay-supplier-id').value),
-        amount: parseFloat(document.getElementById('pay-amount').value),
-        payment_date: document.getElementById('pay-date').value,
-        payment_mode: document.getElementById('pay-mode').value,
-        reference_number: document.getElementById('pay-reference').value,
-        remarks: document.getElementById('pay-remarks').value
-    };
-
-    const result = await fetchPurchaseAPI('/payments', {
-        method: 'POST',
-        body: JSON.stringify(data)
-    });
-
-    if (result.success) {
-        showPurchaseToast('Payment recorded successfully!', 'success');
-        closePaymentFormModal();
-        loadPaymentSummary(); // Refresh summary table
-    } else {
-        showPurchaseToast(result.detail || 'Error recording payment', 'error');
-    }
-}
-
-// Export Payment Functions
-// Attached to window above
-window.closePaymentSummaryModal = closePaymentSummaryModal;
-window.closePaymentFormModal = closePaymentFormModal;
-
+// Export init
+window.initializePurchaseModule = initializePurchaseModule;

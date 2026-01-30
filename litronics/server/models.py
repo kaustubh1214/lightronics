@@ -220,10 +220,10 @@ class PurchaseOrder(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Unique Purchase ID for tracking, reporting, and referencing
-    purchase_id = Column(String(50), unique=True, index=True, nullable=False)
+    purchase_id = Column(String(50), index=True, nullable=False)
     
     # Order Info
-    order_number = Column(String(50), unique=True, nullable=False)
+    order_number = Column(String(50), nullable=False)
     order_placed_by = Column(String(100), nullable=False)
     order_date = Column(DateTime, default=datetime.now)
     
