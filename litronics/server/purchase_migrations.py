@@ -91,7 +91,7 @@ def ensure_purchase_schema() -> None:
         conn.execute(
             text(
                 """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_orders_purchase_id
+                CREATE INDEX IF NOT EXISTS idx_purchase_orders_purchase_id
                 ON purchase_orders(purchase_id)
                 """
             )
