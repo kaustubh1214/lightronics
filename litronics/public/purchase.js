@@ -522,30 +522,24 @@ async function loadLast3Prices(productId) {
 }
 
 function addItemToBatch() {
-    console.log('Adding item to batch...');
+    console.log('Adding/Updating item in batch...');
     const pid = document.getElementById('purchase-product-id').value;
     const qty = document.getElementById('purchase-quantity').value;
     const price = document.getElementById('purchase-unit-price').value;
     const currency = document.getElementById('purchase-price-currency').value;
 
-    console.log('Values:', { pid, qty, price, currency });
-
-    if (!pid || !qty || !price) {
-        showPurchaseToast('Please select product, quantity and price.', 'error');
+    if (!qty || !price) {
+        showPurchaseToast('Please select product (or enter details), quantity and price.', 'error');
         return;
     }
 
-    const product = productsForPurchase.find(p => p.id == pid);
-    if (!product) return;
-
-    // Use already defined currency variable
     const rate = currencyRatesForPurchase[currency] || 1;
     const otherCharges = parseFloat(document.getElementById('purchase-other-charges').value || 0);
     const totalINR = (parseFloat(price) * rate * parseInt(qty)) + otherCharges;
 
-    const item = {
+    const newItem = {
         tempId: Date.now(),
-        product_id: parseInt(pid),
+        product_id: pid ? parseInt(pid) : null,
         part_code: document.getElementById('purchase-part-code').value,
         item_description: document.getElementById('purchase-item-description').value,
         hsn_code: document.getElementById('purchase-hsn-code').value,
@@ -562,9 +556,41 @@ function addItemToBatch() {
         total_estimated: totalINR
     };
 
-    currentBatchItems.push(item);
-    renderBatchItems();
+    if (editingItemIndex > -1) {
+        // --- Update Existing Item Logic ---
+        const original = currentBatchItems[editingItemIndex];
 
+        // Simple comparison to check if changes were made
+        const hasChanges =
+            original.quantity !== newItem.quantity ||
+            original.unit_price !== newItem.unit_price ||
+            original.price_currency !== newItem.price_currency ||
+            original.other_charges !== newItem.other_charges ||
+            original.part_code !== newItem.part_code ||
+            original.gst_applicable !== newItem.gst_applicable;
+
+        if (!hasChanges) {
+            showPurchaseToast('No changes were made to the item.', 'warning');
+            editingItemIndex = -1;
+            renderBatchItems();
+            resetPurchaseItemForm();
+            return;
+        }
+
+        // Update the item
+        currentBatchItems[editingItemIndex] = { ...original, ...newItem, total_estimated: totalINR };
+        showPurchaseToast('Item updated successfully.', 'success');
+        editingItemIndex = -1; // Reset mode
+    } else {
+        // --- Add New Item Logic ---
+        currentBatchItems.push(newItem);
+    }
+
+    renderBatchItems();
+    resetPurchaseItemForm();
+}
+
+function resetPurchaseItemForm() {
     // Reset inputs
     if (productChoices) {
         productChoices.removeActiveItems();
@@ -582,8 +608,22 @@ function addItemToBatch() {
     safeSetValue('purchase-hsn-code', '');
     safeSetValue('purchase-category-name', '');
 
+    // Reset Button State
+    const btn = document.getElementById('add-item-to-batch-btn');
+    if (btn) {
+        btn.innerHTML = "+ Add Item";
+        btn.classList.remove('btn-warning');
+        btn.classList.add('btn-primary');
+    }
+
+    // Reset editing index just in case called externally
+    // But usually addItemToBatch handles it. If canceled specifically, we might need a distinct cancel.
+
     document.getElementById('last-prices-display').style.display = 'none';
 }
+
+// State for tracking item being edited
+let editingItemIndex = -1;
 
 function renderBatchItems() {
     const tbody = document.getElementById('batch-items-tbody');
@@ -597,10 +637,15 @@ function renderBatchItems() {
 
     currentBatchItems.forEach((item, index) => {
         const tr = document.createElement('tr');
-        // Add cursor pointer and click handler for row editing
+
+        // Highlight logic
+        if (index === editingItemIndex) {
+            tr.style.background = 'rgba(255, 193, 7, 0.15)'; // Warning hints at editing
+            tr.style.borderLeft = '4px solid var(--warning)';
+        }
+
         tr.style.cursor = 'pointer';
         tr.onclick = (e) => {
-            // Avoid triggering if delete button is clicked
             if (e.target.closest('.action-btn')) return;
             editItemFromBatch(index);
         };
@@ -623,10 +668,21 @@ function editItemFromBatch(index) {
     const item = currentBatchItems[index];
     if (!item) return;
 
+    editingItemIndex = index; // Set global state
+    renderBatchItems(); // Re-render to show highlight
+
+    // Change Button to Indicate Update
+    const btn = document.getElementById('add-item-to-batch-btn');
+    if (btn) {
+        btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Update Item`;
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-warning');
+    }
+
     // Populate the form fields with item data
     if (productChoices && item.product_id) {
         productChoices.setChoiceByValue(item.product_id);
-    } // If no ID, we rely on manual fields (which is fine for one-off edits)
+    }
 
     safeSetValue('purchase-part-code', item.part_code);
     safeSetValue('purchase-item-description', item.item_description);
@@ -648,16 +704,12 @@ function editItemFromBatch(index) {
     if (gstCheck) gstCheck.checked = item.gst_applicable;
     safeSetValue('purchase-gst-percentage', item.gst_percentage);
 
-    // Set hidden price fields if available
+    // Set hidden price fields
     safeSetValue('purchase-price-usd', item.price_usd);
     safeSetValue('purchase-price-rmb', item.price_rmb);
     safeSetValue('purchase-price-inr', item.price_inr);
 
-    // Remove the item from the list so the user "moves" it to the edit form
-    // They must click "Add" again to save changes back to the list.
-    removeItemFromBatch(index);
-
-    showPurchaseToast('Item moved to form for editing.', 'info');
+    showPurchaseToast(`Editing item #${index + 1}`, 'info');
 }
 
 window.removeItemFromBatch = function (index) {
@@ -765,7 +817,9 @@ window.openPurchaseModal = function (isEdit = false) {
             loadSuppliersForPurchase();
 
             currentBatchItems = [];
+            editingItemIndex = -1; // Reset Edit State
             renderBatchItems();
+            resetPurchaseItemForm();
             safeSetValue('purchase-order-placed-by', '');
             safeSetValue('purchase-remarks', '');
 
