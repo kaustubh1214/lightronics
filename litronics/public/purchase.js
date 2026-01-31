@@ -237,6 +237,18 @@ function renderGroupedOrders() {
         </tr>
     `;
 
+    // --- Reset Stats Card for Orders View ---
+    const totalValueCard = document.getElementById('total-purchase-value');
+    const totalValueLabel = totalValueCard?.parentElement?.querySelector('.stat-label');
+
+    if (totalValueLabel) totalValueLabel.textContent = "Total Value";
+    if (totalValueCard) {
+        // Re-calculate Total Value from purchaseOrdersData
+        const total = purchaseOrdersData.reduce((sum, o) => sum + parseFloat(o.final_total || 0), 0);
+        totalValueCard.textContent = `₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    }
+    // ----------------------------------------
+
     // Group items by purchase_id + order_number
     const groups = {};
     purchaseOrdersData.forEach(item => {
@@ -585,6 +597,14 @@ function renderBatchItems() {
 
     currentBatchItems.forEach((item, index) => {
         const tr = document.createElement('tr');
+        // Add cursor pointer and click handler for row editing
+        tr.style.cursor = 'pointer';
+        tr.onclick = (e) => {
+            // Avoid triggering if delete button is clicked
+            if (e.target.closest('.action-btn')) return;
+            editItemFromBatch(index);
+        };
+
         tr.innerHTML = `
             <td>${item.part_code}</td>
             <td>${item.item_description?.substring(0, 20) || ''}</td>
@@ -592,11 +612,52 @@ function renderBatchItems() {
             <td>${item.price_currency} ${item.unit_price}</td>
             <td>₹${item.total_estimated.toFixed(2)}</td>
             <td>
-                <button class="action-btn" onclick="removeItemFromBatch(${index})" style="color:red;">&times;</button>
+                <button class="action-btn" onclick="removeItemFromBatch(${index})" style="color:red;" title="Remove">&times;</button>
             </td>
         `;
         tbody.appendChild(tr);
     });
+}
+
+function editItemFromBatch(index) {
+    const item = currentBatchItems[index];
+    if (!item) return;
+
+    // Populate the form fields with item data
+    if (productChoices && item.product_id) {
+        productChoices.setChoiceByValue(item.product_id);
+    } // If no ID, we rely on manual fields (which is fine for one-off edits)
+
+    safeSetValue('purchase-part-code', item.part_code);
+    safeSetValue('purchase-item-description', item.item_description);
+    safeSetValue('purchase-quantity', item.quantity);
+    safeSetValue('purchase-unit-price', item.unit_price);
+
+    // Set currency
+    if (item.price_currency) {
+        const currEl = document.getElementById('purchase-price-currency');
+        if (currEl) currEl.value = item.price_currency;
+    }
+
+    safeSetValue('purchase-other-charges', item.other_charges);
+    safeSetValue('purchase-hsn-code', item.hsn_code);
+    safeSetValue('purchase-category-name', item.category_name);
+
+    // GST
+    const gstCheck = document.getElementById('purchase-gst-applicable');
+    if (gstCheck) gstCheck.checked = item.gst_applicable;
+    safeSetValue('purchase-gst-percentage', item.gst_percentage);
+
+    // Set hidden price fields if available
+    safeSetValue('purchase-price-usd', item.price_usd);
+    safeSetValue('purchase-price-rmb', item.price_rmb);
+    safeSetValue('purchase-price-inr', item.price_inr);
+
+    // Remove the item from the list so the user "moves" it to the edit form
+    // They must click "Add" again to save changes back to the list.
+    removeItemFromBatch(index);
+
+    showPurchaseToast('Item moved to form for editing.', 'info');
 }
 
 window.removeItemFromBatch = function (index) {
@@ -690,22 +751,30 @@ function showPurchaseToast(msg, type = 'success') {
 }
 
 // Modal Control
-window.openPurchaseModal = function () {
+// Modal Control
+window.openPurchaseModal = function (isEdit = false) {
     const purchaseView = document.getElementById('purchase-view');
     const purchaseFormView = document.getElementById('purchase-form-view');
     if (purchaseView && purchaseFormView) {
         purchaseView.style.display = 'none';
         purchaseFormView.style.display = 'block';
 
-        // Refresh data to ensure new products/suppliers are available
-        loadProductsForPurchase();
-        loadSuppliersForPurchase();
+        if (!isEdit) {
+            // Reset Form for New Entry
+            loadProductsForPurchase();
+            loadSuppliersForPurchase();
 
-        currentBatchItems = [];
-        renderBatchItems();
-        safeSetValue('purchase-order-placed-by', '');
-        safeSetValue('purchase-remarks', '');
-        document.getElementById('last-prices-display').style.display = 'none';
+            currentBatchItems = [];
+            renderBatchItems();
+            safeSetValue('purchase-order-placed-by', '');
+            safeSetValue('purchase-remarks', '');
+
+            if (purchaseSupplierChoices) purchaseSupplierChoices.setChoiceByValue('');
+
+            document.getElementById('last-prices-display').style.display = 'none';
+            const title = document.getElementById('purchase-form-title');
+            if (title) title.textContent = 'New Purchase Order';
+        }
     }
 }
 
@@ -724,54 +793,62 @@ window.editPurchaseOrder = function (purchaseId) {
 
     const first = orders[0];
 
-    // Open Modal
-    openPurchaseModal(); // This resets form, so we populate after
+    // Open Modal in Edit Mode (prevents clearing)
+    openPurchaseModal(true);
+
+    const titleEl = document.getElementById('purchase-form-title');
+    if (titleEl) titleEl.textContent = `Edit Purchase Order (${purchaseId})`;
 
     // Populate Header Fields
     safeSetValue('purchase-order-placed-by', first.order_placed_by);
-    safeSetValue('purchase-remarks', ''); // Global remarks might not be fetched, leave empty for now or fix backend
+    safeSetValue('purchase-remarks', first.remarks || '');
 
-    // Set Supplier
-    if (purchaseSupplierChoices && first.supplier_name) {
-        const supplier = suppliersForPurchase.find(s => s.supplier_name === first.supplier_name);
-        if (supplier) purchaseSupplierChoices.setChoiceByValue(supplier.id);
+    // Supplier
+    if (purchaseSupplierChoices) {
+        if (first.supplier_id) {
+            purchaseSupplierChoices.setChoiceByValue(first.supplier_id);
+        } else if (first.supplier_name) {
+            const s = suppliersForPurchase.find(x => x.supplier_name === first.supplier_name);
+            if (s) purchaseSupplierChoices.setChoiceByValue(s.id);
+        }
     }
 
-    // Set Delivery Date/Type (Try to find most common or first)
-    // Format date to YYYY-MM-DD for input
+    // Delivery Date & Type
     if (first.delivery_date) {
-        const d = new Date(first.delivery_date);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        safeSetValue('purchase-delivery-date', `${yyyy}-${mm}-${dd}`);
+        safeSetValue('purchase-delivery-date', first.delivery_date.split('T')[0]);
     }
-    // safeSetValue('purchase-delivery-type', first.delivery_type); // If available
+    if (first.delivery_type) {
+        safeSetValue('purchase-delivery-type', first.delivery_type);
+    }
 
     // Populate Items
-    currentBatchItems = orders.map(o => ({
-        tempId: Date.now() + Math.random(),
-        product_id: null, // Product ID might be unknown if not in local store, but we display text
-        part_code: o.part_code,
-        item_description: o.item_description,
-        hsn_code: o.hsn_code,
-        category_name: o.category_name,
-        quantity: o.quantity,
-        price_currency: o.price_currency,
-        unit_price: o.unit_price,
-        // Calculate fields if missing
-        price_usd: o.price_usd || 0,
-        price_rmb: o.price_rmb || 0,
-        price_inr: o.price_inr || 0,
-        other_charges: o.other_charges || 0,
-        gst_applicable: o.gst_applicable,
-        gst_percentage: o.gst_percentage || 18,
-        total_estimated: o.final_total || o.total || 0
-    }));
+    currentBatchItems = orders.map(o => {
+        const rate = currencyRatesForPurchase[o.price_currency] || 1;
+        // Re-calculate estimated total in INR for display
+        const estimated = (parseFloat(o.unit_price || 0) * rate * parseFloat(o.quantity || 0)) + parseFloat(o.other_charges || 0);
+
+        return {
+            tempId: Date.now() + Math.random(),
+            product_id: o.product_id, // Now available from backend
+            part_code: o.part_code,
+            item_description: o.item_description,
+            hsn_code: o.hsn_code,
+            category_name: o.category_name,
+            quantity: parseFloat(o.quantity),
+            price_currency: o.price_currency,
+            price_usd: parseFloat(o.price_usd || 0),
+            price_inr: parseFloat(o.price_inr || 0),
+            price_rmb: parseFloat(o.price_rmb || 0),
+            unit_price: parseFloat(o.unit_price || 0),
+            other_charges: parseFloat(o.other_charges || 0),
+            gst_applicable: o.gst_applicable,
+            gst_percentage: parseFloat(o.gst_percentage || 18),
+            total_estimated: estimated
+        };
+    });
 
     renderBatchItems();
-
-    showPurchaseToast('Order loaded for editing. Note: Saving will create a NEW batch currently.', 'info');
+    showPurchaseToast(`Loaded ${currentBatchItems.length} items for editing.`, 'info');
 }
 
 window.openPurchaseModalWithItems = function (purchaseId) {
@@ -907,6 +984,33 @@ function renderPaymentsTable() {
             <th>Actions</th>
         </tr>
     `;
+
+    // --- Update Stats Card Contextually ---
+    const totalValueCard = document.getElementById('total-purchase-value');
+    const totalValueLabel = totalValueCard?.parentElement?.querySelector('.stat-label');
+
+    // Calculate total pending from *all* payments data (not just filtered)
+    // Note: This relies on currency uniformity or just sums up as INR approx if mixed. 
+    // Ideally we'd separate currencies, but for now we sum up pending amounts assuming mostly local or converted.
+    // The previous logic just summed total_final. Here we sum pending_amount.
+    let totalPending = 0;
+    if (allPaymentsData.length > 0) {
+        // Naive sum of pending amounts (mixed currencies)
+        // A better approach would be to convert everything to INR if rates available, 
+        // but for now let's just show the sum of numeric values.
+        totalPending = allPaymentsData.reduce((sum, item) => sum + (item.pending_amount || 0), 0);
+    }
+
+    if (totalValueCard) {
+        // Update Value
+        totalValueCard.textContent = `₹${totalPending.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+        // Update Label
+        if (totalValueLabel) {
+            totalValueLabel.textContent = "Total Pending Balance";
+        }
+    }
+    // -------------------------------------
 
     // Filter Logic
     const fPid = document.getElementById('pay-filter-pid')?.value.toLowerCase();
