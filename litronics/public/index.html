@@ -265,14 +265,16 @@
                         <div class="view-tabs in-table-header">
                             <button class="active" id="tab-orders" onclick="switchPurchaseTab('orders')">Orders</button>
                             <button id="tab-items" onclick="switchPurchaseTab('items')">Item Wise</button>
+                            <button id="tab-payments" onclick="switchPurchaseTab('payments')">Payments</button>
                         </div>
                         <div class="table-actions">
                             <input type="text" id="purchase-search-input" placeholder="Search..." class="search-input">
                         </div>
                     </div>
 
-                    <!-- Filter Bar (Item Wise Only) -->
+                    <!-- Filter Bar (Item Wise Only via JS logic, but we add Payments bar here) -->
                     <div id="purchase-filter-bar" class="filter-bar">
+                        <!-- Existing Item Filters... -->
                         <div class="filter-group">
                             <label>Purchase ID</label>
                             <input type="text" id="filter-purchase-id" class="filter-input" placeholder="e.g. PO-2024">
@@ -303,6 +305,49 @@
                         </div>
                         <div class="filter-group" style="justify-content: flex-end;">
                             <button class="btn btn-secondary" onclick="clearPurchaseFilters()"
+                                style="padding: 8px 12px; font-size: 0.85rem; margin-top: 19px;">Clear</button>
+                        </div>
+                    </div>
+
+                    <!-- Payments Filter Bar -->
+                    <div id="payments-filter-bar" class="filter-bar" style="display: none;">
+                        <div class="filter-group">
+                            <label>Purchase ID</label>
+                            <input type="text" id="pay-filter-pid" class="filter-input" placeholder="Search ID">
+                        </div>
+                        <div class="filter-group">
+                            <label>Supplier</label>
+                            <input type="text" id="pay-filter-supplier" class="filter-input" placeholder="Name">
+                        </div>
+                        <div class="filter-group">
+                            <label>Currency</label>
+                            <select id="pay-filter-currency" class="filter-input">
+                                <option value="">All</option>
+                                <option value="USD">USD</option>
+                                <option value="RMB">RMB</option>
+                                <option value="INR">INR</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Payment Status</label>
+                            <select id="filter-payment-status" class="filter-input">
+                                <option value="">All</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Partial">Partial</option>
+                                <option value="Paid">Paid</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Dispatch Status</label>
+                            <select id="filter-dispatch-status" class="filter-input">
+                                <option value="">All</option>
+                                <option value="open">Not Dispatched</option>
+                                <option value="shipped">Shipped</option>
+                                <option value="delivered">Delivered</option>
+                            </select>
+                        </div>
+                        <div class="filter-group" style="justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="clearPaymentFilters()"
                                 style="padding: 8px 12px; font-size: 0.85rem; margin-top: 19px;">Clear</button>
                         </div>
                     </div>

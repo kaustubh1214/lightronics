@@ -1098,6 +1098,100 @@ def get_supplier_orders(supplier_id: int, db: Session = Depends(get_db)):
     }
 
 
+
+# =============================================================================
+# Reports
+# =============================================================================
+
+@router.get("/reports/orders-payment-status")
+def get_orders_payment_status(db: Session = Depends(get_db)):
+    """
+    Get payment status grouped by PRO (Purchase Batch).
+    Aggregates all line items and payments for a single purchase_id.
+    """
+    # 1. Get all active orders
+    orders = db.query(PurchaseOrder).filter(PurchaseOrder.is_active == True).all()
+    
+    # 2. Get all payments linked to orders
+    payments = db.query(PurchasePayment).filter(PurchasePayment.purchase_order_id != None).all()
+    
+    # map order_id -> purchase_id
+    order_id_to_pid = {o.id: o.purchase_id for o in orders}
+    
+    # Groups
+    batches = {}
+    
+    # Group Orders
+    for o in orders:
+        pid = o.purchase_id
+        if pid not in batches:
+            batches[pid] = {
+                "id": o.id, # Representative ID (first item)
+                "purchase_id": pid,
+                "order_number": o.order_number,
+                "order_date": o.order_date,
+                "supplier_name": o.supplier_name,
+                "supplier_id": o.supplier_id,
+                "part_codes": [],
+                "currency": o.price_currency,
+                "dispatch_status": o.pi_status, # Take from first item or aggregate?
+                "total_amount": 0.0,
+                "paid_amount": 0.0
+            }
+        
+        b = batches[pid]
+        b["total_amount"] += float(o.final_total or 0)
+        b["part_codes"].append(o.part_code)
+        # Update status logic? If any item is shipped, show shipped?
+        # For now, stick to first item's status or specific logic
+    
+    # Group Payments
+    for p in payments:
+        if p.purchase_order_id in order_id_to_pid:
+            pid = order_id_to_pid[p.purchase_order_id]
+            if pid in batches:
+                batches[pid]["paid_amount"] += float(p.amount or 0)
+    
+    # Format Result
+    data = []
+    for pid, b in batches.items():
+        total = b["total_amount"]
+        paid = b["paid_amount"]
+        pending = total - paid
+        
+        if pending <= 0.01:
+            status = "Paid"
+        elif paid > 0:
+            status = "Partial"
+        else:
+            status = "Pending"
+            
+        # Summary string
+        parts = b["part_codes"]
+        summary = f"{parts[0]} + {len(parts)-1} more" if len(parts) > 1 else (parts[0] if parts else "Unknown")
+        
+        data.append({
+            "id": b["id"], # This is the ID of the first item, useful for linking payment
+            "purchase_id": b["purchase_id"],
+            "order_number": b["order_number"],
+            "order_date": b["order_date"].isoformat() if b["order_date"] else None,
+            "supplier_name": b["supplier_name"],
+            "supplier_id": b["supplier_id"],
+            "items_summary": summary,
+            "currency": b["currency"],
+            "total_amount": total,
+            "paid_amount": paid,
+            "pending_amount": 0 if pending < 0 else pending,
+            "payment_status": status,
+            "dispatch_status": b["dispatch_status"]
+        })
+        
+    # Sort by date desc
+    data.sort(key=lambda x: x["order_date"] or "", reverse=True)
+        
+    return {"success": True, "data": data}
+
+
 # =============================================================================
 # Health Check
 # =============================================================================

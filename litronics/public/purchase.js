@@ -40,6 +40,8 @@ function initializePurchaseModule() {
         loadPurchaseOrders(); // Load data after setting tab
 
         setupPurchaseEventListeners();
+        setupPaymentFormListener();
+        setupPaymentFilterListeners();
 
         console.log('Purchase Module Initialized Successfully');
     } catch (e) {
@@ -195,11 +197,12 @@ window.switchPurchaseTab = function (tab) {
     const activeBtn = document.getElementById(`tab-${tab}`);
     if (activeBtn) activeBtn.classList.add('active');
 
-    // Toggle Filter Bar
+    // Toggle Filter Bars
     const filterBar = document.getElementById('purchase-filter-bar');
-    if (filterBar) {
-        filterBar.style.display = tab === 'items' ? 'flex' : 'none';
-    }
+    const paymentsFilterBar = document.getElementById('payments-filter-bar');
+
+    if (filterBar) filterBar.style.display = tab === 'items' ? 'flex' : 'none';
+    if (paymentsFilterBar) paymentsFilterBar.style.display = tab === 'payments' ? 'flex' : 'none';
 
     // Refresh view
     renderCurrentView();
@@ -208,6 +211,8 @@ window.switchPurchaseTab = function (tab) {
 function renderCurrentView() {
     if (activeTab === 'orders') {
         renderGroupedOrders();
+    } else if (activeTab === 'payments') {
+        loadAndRenderPayments();
     } else {
         renderFlatItems();
     }
@@ -855,3 +860,258 @@ async function loadPaymentSummary() {
 
 // Export init
 window.initializePurchaseModule = initializePurchaseModule;
+
+// =============================================================================
+// New Payments Tab Logic
+// =============================================================================
+
+let allPaymentsData = [];
+
+async function loadAndRenderPayments() {
+    const tbody = document.getElementById('purchase-orders-tbody');
+    const thead = document.getElementById('purchase-table-head');
+    if (!tbody || !thead) return;
+
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Loading...</td></tr>';
+    // Don't clear header here to prevent jumpiness, we overwrite it in renderPaymentsTable
+
+    try {
+        const result = await fetchPurchaseAPI('/reports/orders-payment-status');
+        if (result.success) {
+            allPaymentsData = result.data || [];
+            renderPaymentsTable();
+        } else {
+            tbody.innerHTML = `<tr><td colspan="9">Error: ${result.message}</td></tr>`;
+        }
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="9">Error: ${e.message}</td></tr>`;
+    }
+}
+
+function renderPaymentsTable() {
+    const tbody = document.getElementById('purchase-orders-tbody');
+    const thead = document.getElementById('purchase-table-head');
+    if (!tbody || !thead) return;
+
+    // Set Headers
+    thead.innerHTML = `
+        <tr>
+            <th>Date</th>
+            <th>Purchase ID</th>
+            <th>Supplier</th>
+            <th>Summary</th>
+            <th>Total Value</th>
+            <th>Paid</th>
+            <th>Pending</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    `;
+
+    // Filter Logic
+    const fPid = document.getElementById('pay-filter-pid')?.value.toLowerCase();
+    const fSupp = document.getElementById('pay-filter-supplier')?.value.toLowerCase();
+    const fCurr = document.getElementById('pay-filter-currency')?.value;
+    const fStatus = document.getElementById('filter-payment-status')?.value;
+    const fDispatch = document.getElementById('filter-dispatch-status')?.value;
+
+    let filtered = allPaymentsData.filter(item => {
+        const matchPid = !fPid || (item.purchase_id && item.purchase_id.toLowerCase().includes(fPid));
+        const matchSupp = !fSupp || (item.supplier_name && item.supplier_name.toLowerCase().includes(fSupp));
+        const matchCurr = !fCurr || (item.currency === fCurr);
+        const matchStatus = !fStatus || item.payment_status === fStatus;
+        const matchDispatch = !fDispatch || item.dispatch_status === fDispatch;
+        return matchPid && matchSupp && matchCurr && matchStatus && matchDispatch;
+    });
+
+    tbody.innerHTML = '';
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 20px;">No items match filters.</td></tr>';
+        return;
+    }
+
+    filtered.forEach(item => {
+        const tr = document.createElement('tr');
+        const currencyMap = { 'USD': '$', 'RMB': '¥', 'INR': '₹' };
+        const symbol = currencyMap[item.currency] || item.currency || ' ';
+
+        const statusColors = {
+            'Paid': 'var(--success)',
+            'Partial': 'var(--warning)',
+            'Pending': 'var(--danger)'
+        };
+        const statusStyle = `background:${statusColors[item.payment_status] || '#ccc'}; color:white;`;
+
+        // Sanitize for HTML attribute
+        const safeSupplier = (item.supplier_name || '')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;')
+            .replace(/\n/g, ' ');
+
+        tr.innerHTML = `
+            <td>${item.order_date ? item.order_date.split('T')[0] : '-'}</td>
+            <td><strong>${item.purchase_id}</strong></td>
+            <td>${item.supplier_name}</td>
+            <td><small>${item.items_summary}</small></td>
+            <td>${symbol}${item.total_amount.toFixed(2)}</td>
+            <td>${symbol}${item.paid_amount.toFixed(2)}</td>
+            <td style="color:${item.pending_amount > 0.01 ? 'red' : 'green'}; font-weight:bold;">
+                ${symbol}${item.pending_amount.toFixed(2)}
+            </td>
+            <td><span class="status-badge" style="${statusStyle}">${item.payment_status}</span></td>
+            <td>
+                ${item.payment_status !== 'Paid' ?
+                `<button class="btn btn-sm btn-primary" onclick="openOrderPaymentModal(${item.id}, '${safeSupplier}', ${item.supplier_id || 0}, ${item.pending_amount}, '${item.currency}')">Pay</button>`
+                : '<span style="color:var(--success)">Completed</span>'}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+window.clearPaymentFilters = function () {
+    safeSetValue('pay-filter-pid', '');
+    safeSetValue('pay-filter-supplier', '');
+    safeSetValue('pay-filter-currency', '');
+    safeSetValue('filter-payment-status', '');
+    safeSetValue('filter-dispatch-status', '');
+    renderPaymentsTable();
+}
+
+/**
+ * Setup Listeners for Payment Filters
+ * This needs to be called during initialization
+ */
+function setupPaymentFilterListeners() {
+    const ids = ['pay-filter-pid', 'pay-filter-supplier', 'pay-filter-currency', 'filter-payment-status', 'filter-dispatch-status'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', renderPaymentsTable);
+        }
+    });
+}
+
+window.openOrderPaymentModal = function (orderId, supplierName, supplierId, pending, currency) {
+    console.log('Opening payment modal:', { orderId, supplierName, pending });
+
+    const modal = document.getElementById('payment-form-modal');
+    if (!modal) {
+        console.error('Payment modal not found');
+        return;
+    }
+
+    try {
+        // Move to body and force display to overcome any CSS issues
+        if (modal.parentNode !== document.body) {
+            document.body.appendChild(modal);
+        }
+
+        // Force explicit styles
+        modal.style.setProperty('display', 'flex', 'important');
+        modal.style.setProperty('visibility', 'visible', 'important');
+        modal.style.setProperty('opacity', '1', 'important');
+        modal.style.setProperty('position', 'fixed', 'important');
+        modal.style.setProperty('z-index', '2147483647', 'important'); // Max z-index
+        modal.style.setProperty('top', '0', 'important');
+        modal.style.setProperty('left', '0', 'important');
+        modal.style.setProperty('width', '100vw', 'important');
+        modal.style.setProperty('height', '100vh', 'important');
+        modal.style.setProperty('background-color', 'rgba(0,0,0,0.8)', 'important'); // Ensure dark bg
+
+        modal.classList.add('active');
+
+        // Populate fields
+        safeSetValue('pay-supplier-name', supplierName);
+        safeSetValue('pay-supplier-id', supplierId);
+
+        // Set Order ID in a hidden field. If not exists, create it.
+        let orderInput = document.getElementById('pay-purchase-order-id');
+        if (!orderInput) {
+            orderInput = document.createElement('input');
+            orderInput.type = 'hidden';
+            orderInput.id = 'pay-purchase-order-id';
+            const form = document.getElementById('payment-form');
+            if (form) form.appendChild(orderInput);
+        }
+        if (orderInput) orderInput.value = orderId;
+
+        // Update Input Symbol
+        const currencyMap = { 'USD': '$', 'RMB': '¥', 'INR': '₹' };
+        const symbol = currencyMap[currency] || '₹';
+        // Try to find the icon inside the modal
+        const icons = document.querySelectorAll('#payment-form .input-icon, #payment-form .input-with-icon span');
+        icons.forEach(ic => {
+            if (ic.textContent.trim().length <= 1) ic.textContent = symbol;
+        });
+
+        safeSetValue('pay-amount', pending.toFixed(2));
+        const today = new Date().toISOString().split('T')[0];
+        safeSetValue('pay-date', today);
+        safeSetValue('pay-remarks', `Payment for Order ${orderId}`);
+
+        console.log("Modal force-opened via inline styles");
+    } catch (e) {
+        console.error('Error in openOrderPaymentModal:', e);
+        showPurchaseToast('Error opening payment form: ' + e.message, 'error');
+    }
+}
+
+window.closePaymentFormModal = function () {
+    const modal = document.getElementById('payment-form-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
+}
+
+function setupPaymentFormListener() {
+    const form = document.getElementById('payment-form');
+    if (form) {
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const supplierId = document.getElementById('pay-supplier-id').value;
+            const orderId = document.getElementById('pay-purchase-order-id')?.value;
+            const amount = document.getElementById('pay-amount').value;
+
+            if (!supplierId || !amount) {
+                showPurchaseToast('Missing required fields', 'error');
+                return;
+            }
+
+            const payload = {
+                supplier_id: parseInt(supplierId),
+                purchase_order_id: orderId ? parseInt(orderId) : null,
+                amount: parseFloat(amount),
+                payment_date: document.getElementById('pay-date').value,
+                payment_mode: document.getElementById('pay-mode').value,
+                reference_number: document.getElementById('pay-reference').value,
+                remarks: document.getElementById('pay-remarks').value
+            };
+
+            try {
+                const res = await fetchPurchaseAPI('/payments', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.success) {
+                    showPurchaseToast('Payment recorded successfully!', 'success');
+                    closePaymentFormModal();
+
+                    // Refresh views
+                    if (typeof activeTab !== 'undefined' && activeTab === 'payments') {
+                        loadAndRenderPayments();
+                    }
+                    // Also refresh the summary modal if open
+                    if (document.getElementById('payment-summary-modal')?.classList.contains('active')) {
+                        loadPaymentSummary();
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                showPurchaseToast(err.message, 'error');
+            }
+        };
+    }
+}
