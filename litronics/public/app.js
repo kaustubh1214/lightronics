@@ -36,6 +36,9 @@ let suppliersData = [];
 let hsnCodesData = [];
 let productsData = [];
 
+// Edit Mode Tracking
+let editingProductId = null;
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     console.log('App initializing...');
@@ -87,7 +90,7 @@ function setupNavigation() {
             if (!targetView) {
                 console.warn(`View not found for module: ${targetModule}`);
                 // For modules not yet implemented
-                if (['products', 'purchase'].includes(targetModule)) {
+                if (['products', 'purchase', 'dispatch'].includes(targetModule)) {
                     // Specific logic for implemented modules
                 } else {
                     alert(`The ${targetModule} module is coming soon!`);
@@ -432,6 +435,9 @@ let currentProductPrices = { USD: 0, RMB: 0, INR: 0 };
 function openModal(product = null) {
     productForm.reset();
 
+    // Track if we're editing
+    editingProductId = product ? product.id : null;
+
     // Reset Choices
     if (categoryChoices) categoryChoices.removeActiveItems();
     if (supplierChoices) supplierChoices.removeActiveItems();
@@ -500,6 +506,7 @@ function openModal(product = null) {
 function closeModal() {
     productModal.classList.remove('active');
     document.body.style.overflow = '';
+    editingProductId = null; // Reset edit mode
 }
 
 // Function to determine primary currency based on inputs
@@ -547,13 +554,24 @@ async function handleFormSubmit(e) {
     if (data.category_id) data.category_id = parseInt(data.category_id);
     if (data.hsn_code_id) data.hsn_code_id = parseInt(data.hsn_code_id);
 
-    const result = await fetchAPI('/products', {
-        method: 'POST',
-        body: JSON.stringify(data)
-    });
+    // Determine if creating or updating
+    let result;
+    if (editingProductId) {
+        // Update existing product
+        result = await fetchAPI(`/products/${editingProductId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    } else {
+        // Create new product
+        result = await fetchAPI('/products', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    }
 
     if (result.success || result.id) {
-        showToast('Product saved successfully!', 'success');
+        showToast(editingProductId ? 'Product updated successfully!' : 'Product created successfully!', 'success');
         closeModal();
         loadProducts();
     } else {

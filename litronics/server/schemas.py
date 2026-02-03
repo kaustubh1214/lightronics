@@ -29,6 +29,24 @@ class ProductCreate(BaseModel):
     supplier_ids: Optional[List[int]] = []
 
 
+class ProductUpdate(BaseModel):
+    """Schema for updating an existing product."""
+    part_code: Optional[str] = None
+    description: Optional[str] = None
+    category_id: Optional[int] = None
+    pieces_per_unit: Optional[int] = None
+    packaging_quantity: Optional[int] = None
+    hsn_code_id: Optional[int] = None
+    unit_price_usd: Optional[float] = None
+    unit_price_rmb: Optional[float] = None
+    unit_price_inr: Optional[float] = None
+    primary_currency: Optional[str] = None
+    basic_custom_duty_percentage: Optional[float] = None
+    freight_percentage: Optional[float] = None
+    gst_percentage: Optional[float] = None
+    supplier_ids: Optional[List[int]] = None
+
+
 # =============================================================================
 # Purchase Order Schemas
 # =============================================================================
@@ -115,3 +133,56 @@ class PurchasePaymentCreate(BaseModel):
     payment_mode: Optional[str] = "Bank Transfer"
     reference_number: Optional[str] = None
     remarks: Optional[str] = None
+
+
+# =============================================================================
+# Dispatch Schemas
+# =============================================================================
+
+class DispatchItemCreate(BaseModel):
+    """Schema for an item in a dispatch."""
+    purchase_order_id: int
+    part_code: str
+    description: Optional[str] = None
+    hsn_code: Optional[str] = None
+    category_name: Optional[str] = None
+    supplier_name: Optional[str] = None
+    ordered_quantity: int
+    dispatch_quantity: int
+    price_currency: str = "USD"
+    original_price: float = 0
+    dispatch_price: float = 0
+
+
+class DispatchCreate(BaseModel):
+    """Schema for creating a new dispatch."""
+    purchase_id: str  # Reference to the purchase order batch
+    dispatched_by: str
+    delivery_type: str  # sea, air, courier, local
+    consignment_type: str  # Full, Partial
+    consignment_number: str
+    expected_arrival_date: str  # ISO date string
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    currency: Optional[str] = "USD"
+    remarks: Optional[str] = None
+    items: List[DispatchItemCreate]
+
+
+class DispatchItemUpdate(BaseModel):
+    """Schema for updating a dispatch item."""
+    dispatch_quantity: Optional[int] = None
+    dispatch_price: Optional[float] = None
+
+
+class DispatchUpdate(BaseModel):
+    """Schema for updating a dispatch."""
+    dispatched_by: Optional[str] = None
+    delivery_type: Optional[str] = None
+    consignment_type: Optional[str] = None
+    consignment_number: Optional[str] = None
+    expected_arrival_date: Optional[str] = None
+    status: Optional[str] = None
+    remarks: Optional[str] = None
+    items: Optional[List[DispatchItemUpdate]] = None
+

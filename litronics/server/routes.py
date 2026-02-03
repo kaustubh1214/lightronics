@@ -10,8 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder, PurchasePayment
-from schemas import ProductCreate, PurchaseOrderCreate, PurchaseOrderUpdate, PurchasePaymentCreate, PurchaseBatchCreate
+from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder, PurchasePayment, DispatchMaster, DispatchItem
+from schemas import ProductCreate, ProductUpdate, PurchaseOrderCreate, PurchaseOrderUpdate, PurchasePaymentCreate, PurchaseBatchCreate, DispatchCreate, DispatchUpdate
 from purchase_ids import generate_purchase_id as _generate_purchase_id, generate_order_number as _generate_order_number
 
 
@@ -144,6 +144,100 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
         db.commit()
 
     return {"success": True, "message": "Product deleted"}
+
+
+@router.put("/products/{product_id}")
+def update_product(product_id: int, product: ProductUpdate, db: Session = Depends(get_db)):
+    """Update an existing product with landed price recalculation."""
+    db_product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.is_active == True
+    ).first()
+    
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Update fields if provided
+    if product.part_code is not None:
+        db_product.part_code = product.part_code
+    if product.description is not None:
+        db_product.description = product.description
+    if product.category_id is not None:
+        db_product.category_id = product.category_id
+    if product.pieces_per_unit is not None:
+        db_product.pieces_per_unit = product.pieces_per_unit
+    if product.packaging_quantity is not None:
+        db_product.packaging_quantity = product.packaging_quantity
+    if product.hsn_code_id is not None:
+        db_product.hsn_code_id = product.hsn_code_id
+    if product.unit_price_usd is not None:
+        db_product.unit_price_usd = product.unit_price_usd
+    if product.unit_price_rmb is not None:
+        db_product.unit_price_rmb = product.unit_price_rmb
+    if product.unit_price_inr is not None:
+        db_product.unit_price_inr = product.unit_price_inr
+    if product.primary_currency is not None:
+        db_product.primary_currency = product.primary_currency
+    if product.basic_custom_duty_percentage is not None:
+        db_product.basic_custom_duty_percentage = product.basic_custom_duty_percentage
+    if product.freight_percentage is not None:
+        db_product.freight_percentage = product.freight_percentage
+    if product.gst_percentage is not None:
+        db_product.gst_percentage = product.gst_percentage
+    
+    # Update suppliers if provided
+    if product.supplier_ids is not None:
+        suppliers = db.query(Supplier).filter(
+            Supplier.id.in_(product.supplier_ids)
+        ).all()
+        db_product.suppliers = suppliers
+    
+    # Recalculate landed price
+    rate_to_inr = 1.0
+    primary_currency = db_product.primary_currency or "USD"
+    if primary_currency != "INR":
+        rate = db.query(CurrencyRate).filter(
+            CurrencyRate.currency_code == primary_currency
+        ).first()
+        
+        if rate:
+            rate_to_inr = rate.rate_to_inr
+        else:
+            defaults = {"USD": 83.50, "RMB": 11.50}
+            rate_to_inr = defaults.get(primary_currency, 1.0)
+
+    if primary_currency == "USD":
+        base_price = (db_product.unit_price_usd or 0) * rate_to_inr
+    elif primary_currency == "RMB":
+        base_price = (db_product.unit_price_rmb or 0) * rate_to_inr
+    else:
+        base_price = db_product.unit_price_inr or 0
+
+    bcd = base_price * ((db_product.basic_custom_duty_percentage or 0) / 100)
+    freight = base_price * ((db_product.freight_percentage or 0) / 100)
+    subtotal = base_price + bcd + freight
+    gst = subtotal * ((db_product.gst_percentage or 18) / 100)
+    landed_price_inr = subtotal + gst
+    
+    landed_price_usd = 0
+    if rate_to_inr > 0:
+        landed_price_usd = landed_price_inr / rate_to_inr
+    
+    db_product.landed_price_inr = landed_price_inr
+    db_product.landed_price_usd = landed_price_usd
+    
+    try:
+        db.commit()
+        db.refresh(db_product)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Product with this Part Code already exists.")
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating product: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+    
+    return {"success": True, "id": db_product.id, "message": "Product updated successfully"}
 
 
 @router.get("/products/by-part-code/{part_code}")
@@ -390,6 +484,49 @@ def get_purchase_orders(db: Session = Depends(get_db)):
         })
     
     return {"success": True, "data": result}
+
+
+@router.get("/purchase-orders/ready-to-dispatch")
+def get_ready_to_dispatch_orders(db: Session = Depends(get_db)):
+    """
+    Get all purchase orders marked as 'ready_to_dispatch' status.
+    These are the only orders that can be dispatched.
+    This route MUST be defined before /purchase-orders/{order_id} to avoid routing conflicts.
+    """
+    orders = db.query(PurchaseOrder).filter(
+        PurchaseOrder.pi_status == "ready_to_dispatch",
+        PurchaseOrder.is_active == True
+    ).order_by(PurchaseOrder.created_at.desc()).all()
+    
+    # Group by purchase_id
+    batches = {}
+    for o in orders:
+        pid = o.purchase_id
+        if pid not in batches:
+            batches[pid] = {
+                "purchase_id": pid,
+                "order_number": o.order_number,
+                "order_date": o.order_date.isoformat() if o.order_date else None,
+                "supplier_id": o.supplier_id,
+                "supplier_name": o.supplier_name,
+                "delivery_type": o.delivery_type,
+                "currency": o.price_currency,
+                "items": []
+            }
+        
+        batches[pid]["items"].append({
+            "id": o.id,
+            "part_code": o.part_code,
+            "description": o.item_description,
+            "hsn_code": o.hsn_code,
+            "category_name": o.category_name,
+            "quantity": o.quantity,
+            "unit_price": o.unit_price,
+            "price_currency": o.price_currency,
+            "total": o.final_total
+        })
+    
+    return {"success": True, "data": list(batches.values())}
 
 
 @router.get("/purchase-orders/{order_id}")
@@ -766,7 +903,7 @@ def update_purchase_order_status(
     db: Session = Depends(get_db)
 ):
     """Update just the PI status of a purchase order."""
-    valid_statuses = ["open", "confirmed", "shipped", "delivered", "cancelled"]
+    valid_statuses = ["open", "confirmed", "ready_to_dispatch", "shipped", "delivered", "cancelled"]
     
     if status not in valid_statuses:
         raise HTTPException(
@@ -1192,6 +1329,336 @@ def get_orders_payment_status(db: Session = Depends(get_db)):
     data.sort(key=lambda x: x["order_date"] or "", reverse=True)
         
     return {"success": True, "data": data}
+
+
+# =============================================================================
+# Dispatch Routes
+# =============================================================================
+
+# NOTE: The /purchase-orders/ready-to-dispatch route is defined earlier in the file
+# (before /purchase-orders/{order_id}) to avoid routing conflicts.
+
+@router.get("/dispatches")
+def get_dispatches(db: Session = Depends(get_db)):
+    """Get all active dispatches."""
+    dispatches = db.query(DispatchMaster).filter(
+        DispatchMaster.is_active == True
+    ).order_by(DispatchMaster.created_at.desc()).all()
+    
+    result = []
+    for d in dispatches:
+        items_count = len(d.items) if d.items else 0
+        result.append({
+            "id": d.id,
+            "dispatch_id": d.dispatch_id,
+            "purchase_id": d.purchase_id,
+            "dispatch_date": d.dispatch_date.isoformat() if d.dispatch_date else None,
+            "dispatched_by": d.dispatched_by,
+            "delivery_type": d.delivery_type,
+            "consignment_type": d.consignment_type,
+            "consignment_number": d.consignment_number,
+            "consignment_saved_at": d.consignment_saved_at.isoformat() if d.consignment_saved_at else None,
+            "expected_arrival_date": d.expected_arrival_date.isoformat() if d.expected_arrival_date else None,
+            "supplier_id": d.supplier_id,
+            "supplier_name": d.supplier_name,
+            "currency": d.currency,
+            "total_quantity": d.total_quantity,
+            "total_amount": d.total_amount,
+            "status": d.status,
+            "items_count": items_count,
+            "remarks": d.remarks
+        })
+    
+    return {"success": True, "data": result}
+
+
+@router.get("/dispatches/{dispatch_id}")
+def get_dispatch(dispatch_id: int, db: Session = Depends(get_db)):
+    """Get a specific dispatch with all items."""
+    dispatch = db.query(DispatchMaster).filter(
+        DispatchMaster.id == dispatch_id,
+        DispatchMaster.is_active == True
+    ).first()
+    
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    items = []
+    for item in dispatch.items:
+        items.append({
+            "id": item.id,
+            "purchase_order_id": item.purchase_order_id,
+            "part_code": item.part_code,
+            "description": item.description,
+            "hsn_code": item.hsn_code,
+            "category_name": item.category_name,
+            "supplier_name": item.supplier_name,
+            "ordered_quantity": item.ordered_quantity,
+            "dispatch_quantity": item.dispatch_quantity,
+            "price_currency": item.price_currency,
+            "original_price": item.original_price,
+            "dispatch_price": item.dispatch_price,
+            "total": item.total
+        })
+    
+    return {
+        "success": True,
+        "data": {
+            "id": dispatch.id,
+            "dispatch_id": dispatch.dispatch_id,
+            "purchase_id": dispatch.purchase_id,
+            "dispatch_date": dispatch.dispatch_date.isoformat() if dispatch.dispatch_date else None,
+            "dispatched_by": dispatch.dispatched_by,
+            "delivery_type": dispatch.delivery_type,
+            "consignment_type": dispatch.consignment_type,
+            "consignment_number": dispatch.consignment_number,
+            "consignment_saved_at": dispatch.consignment_saved_at.isoformat() if dispatch.consignment_saved_at else None,
+            "expected_arrival_date": dispatch.expected_arrival_date.isoformat() if dispatch.expected_arrival_date else None,
+            "supplier_id": dispatch.supplier_id,
+            "supplier_name": dispatch.supplier_name,
+            "currency": dispatch.currency,
+            "total_quantity": dispatch.total_quantity,
+            "total_amount": dispatch.total_amount,
+            "status": dispatch.status,
+            "remarks": dispatch.remarks,
+            "items": items
+        }
+    }
+
+
+@router.post("/dispatches")
+def create_dispatch(dispatch: DispatchCreate, db: Session = Depends(get_db)):
+    """Create a new dispatch record."""
+    # Validate mandatory fields
+    if not dispatch.delivery_type:
+        raise HTTPException(status_code=400, detail="Delivery type is required")
+    if not dispatch.consignment_type:
+        raise HTTPException(status_code=400, detail="Consignment type is required")
+    if not dispatch.consignment_number:
+        raise HTTPException(status_code=400, detail="Consignment number is required")
+    if not dispatch.expected_arrival_date:
+        raise HTTPException(status_code=400, detail="Expected arrival date is required")
+    if not dispatch.items or len(dispatch.items) == 0:
+        raise HTTPException(status_code=400, detail="At least one item is required")
+    
+    # Parse expected arrival date
+    try:
+        expected_date = datetime.fromisoformat(dispatch.expected_arrival_date.replace('Z', '+00:00'))
+    except:
+        raise HTTPException(status_code=400, detail="Invalid expected arrival date format")
+    
+    # Get supplier info
+    supplier_name = dispatch.supplier_name
+    if dispatch.supplier_id and not supplier_name:
+        supplier = db.query(Supplier).filter(Supplier.id == dispatch.supplier_id).first()
+        if supplier:
+            supplier_name = supplier.supplier_name
+    
+    # Create dispatch master
+    now = datetime.now()
+    db_dispatch = DispatchMaster(
+        purchase_id=dispatch.purchase_id,
+        dispatch_date=now,
+        dispatched_by=dispatch.dispatched_by,
+        delivery_type=dispatch.delivery_type,
+        consignment_type=dispatch.consignment_type,
+        consignment_number=dispatch.consignment_number,
+        consignment_saved_at=now,
+        expected_arrival_date=expected_date,
+        supplier_id=dispatch.supplier_id,
+        supplier_name=supplier_name,
+        currency=dispatch.currency or "USD",
+        remarks=dispatch.remarks
+    )
+    
+    db.add(db_dispatch)
+    db.flush()  # Get the ID without committing
+    
+    # Create dispatch items
+    total_quantity = 0
+    total_amount = 0.0
+    
+    for item in dispatch.items:
+        # Validate dispatch quantity doesn't exceed ordered quantity
+        if item.dispatch_quantity > item.ordered_quantity:
+            db.rollback()
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Dispatch quantity ({item.dispatch_quantity}) cannot exceed ordered quantity ({item.ordered_quantity}) for {item.part_code}"
+            )
+        
+        item_total = item.dispatch_quantity * item.dispatch_price
+        
+        db_item = DispatchItem(
+            dispatch_id=db_dispatch.id,
+            purchase_order_id=item.purchase_order_id,
+            part_code=item.part_code,
+            description=item.description,
+            hsn_code=item.hsn_code,
+            category_name=item.category_name,
+            supplier_name=item.supplier_name,
+            ordered_quantity=item.ordered_quantity,
+            dispatch_quantity=item.dispatch_quantity,
+            price_currency=item.price_currency,
+            original_price=item.original_price,
+            dispatch_price=item.dispatch_price,
+            total=item_total
+        )
+        db.add(db_item)
+        
+        total_quantity += item.dispatch_quantity
+        total_amount += item_total
+        
+        # Update the purchase order status to 'dispatched'
+        if item.purchase_order_id:
+            po = db.query(PurchaseOrder).filter(PurchaseOrder.id == item.purchase_order_id).first()
+            if po:
+                po.pi_status = "dispatched"
+    
+    # Update totals on dispatch master
+    db_dispatch.total_quantity = total_quantity
+    db_dispatch.total_amount = total_amount
+    
+    try:
+        db.commit()
+        db.refresh(db_dispatch)
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error creating dispatch: {str(e)}")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+    
+    return {
+        "success": True,
+        "id": db_dispatch.id,
+        "dispatch_id": db_dispatch.dispatch_id,
+        "message": "Dispatch created successfully"
+    }
+
+
+@router.put("/dispatches/{dispatch_id}")
+def update_dispatch(dispatch_id: int, dispatch: DispatchUpdate, db: Session = Depends(get_db)):
+    """Update an existing dispatch record."""
+    db_dispatch = db.query(DispatchMaster).filter(
+        DispatchMaster.id == dispatch_id,
+        DispatchMaster.is_active == True
+    ).first()
+    
+    if not db_dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    # Update fields if provided
+    if dispatch.dispatched_by is not None:
+        db_dispatch.dispatched_by = dispatch.dispatched_by
+    if dispatch.delivery_type is not None:
+        db_dispatch.delivery_type = dispatch.delivery_type
+    if dispatch.consignment_type is not None:
+        db_dispatch.consignment_type = dispatch.consignment_type
+    if dispatch.consignment_number is not None:
+        db_dispatch.consignment_number = dispatch.consignment_number
+        db_dispatch.consignment_saved_at = datetime.now()  # Update saved time when number changes
+    if dispatch.expected_arrival_date is not None:
+        try:
+            db_dispatch.expected_arrival_date = datetime.fromisoformat(
+                dispatch.expected_arrival_date.replace('Z', '+00:00')
+            )
+        except:
+            pass
+    if dispatch.status is not None:
+        db_dispatch.status = dispatch.status
+    if dispatch.remarks is not None:
+        db_dispatch.remarks = dispatch.remarks
+    
+    # Update items if provided
+    if dispatch.items:
+        total_quantity = 0
+        total_amount = 0.0
+        
+        for i, item_update in enumerate(dispatch.items):
+            if i < len(db_dispatch.items):
+                db_item = db_dispatch.items[i]
+                
+                if item_update.dispatch_quantity is not None:
+                    # Validate quantity
+                    if item_update.dispatch_quantity > db_item.ordered_quantity:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Dispatch quantity cannot exceed ordered quantity for {db_item.part_code}"
+                        )
+                    db_item.dispatch_quantity = item_update.dispatch_quantity
+                
+                if item_update.dispatch_price is not None:
+                    db_item.dispatch_price = item_update.dispatch_price
+                
+                # Recalculate item total
+                db_item.total = db_item.dispatch_quantity * db_item.dispatch_price
+                
+                total_quantity += db_item.dispatch_quantity
+                total_amount += db_item.total
+        
+        # Update master totals
+        db_dispatch.total_quantity = total_quantity
+        db_dispatch.total_amount = total_amount
+    
+    try:
+        db.commit()
+        db.refresh(db_dispatch)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error updating dispatch: {str(e)}")
+    
+    return {
+        "success": True,
+        "id": db_dispatch.id,
+        "message": "Dispatch updated successfully"
+    }
+
+
+@router.delete("/dispatches/{dispatch_id}")
+def delete_dispatch(dispatch_id: int, db: Session = Depends(get_db)):
+    """Soft delete a dispatch record."""
+    dispatch = db.query(DispatchMaster).filter(DispatchMaster.id == dispatch_id).first()
+    
+    if dispatch:
+        dispatch.is_active = False
+        db.commit()
+    
+    return {"success": True, "message": "Dispatch deleted"}
+
+
+@router.patch("/dispatches/{dispatch_id}/status")
+def update_dispatch_status(dispatch_id: int, status: str, db: Session = Depends(get_db)):
+    """Update just the status of a dispatch."""
+    valid_statuses = ["dispatched", "in_transit", "delivered", "cancelled"]
+    
+    if status not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    dispatch = db.query(DispatchMaster).filter(
+        DispatchMaster.id == dispatch_id,
+        DispatchMaster.is_active == True
+    ).first()
+    
+    if not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    
+    dispatch.status = status
+    
+    # If delivered, update related purchase orders
+    if status == "delivered":
+        for item in dispatch.items:
+            if item.purchase_order_id:
+                po = db.query(PurchaseOrder).filter(PurchaseOrder.id == item.purchase_order_id).first()
+                if po:
+                    po.pi_status = "delivered"
+    
+    db.commit()
+    
+    return {"success": True, "message": f"Status updated to '{status}'"}
 
 
 # =============================================================================

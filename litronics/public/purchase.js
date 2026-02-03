@@ -298,17 +298,27 @@ function renderGroupedOrders() {
             <td style="font-weight:600;">₹${group.total_value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
             <td><span class="status-badge status-${group.status}">${group.status?.toUpperCase() || 'OPEN'}</span></td>
             <td>
-                <button class="action-btn" onclick="openPurchaseModalWithItems('${group.id}')" title="View Items" style="margin-right: 5px;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                </button>
-                <button class="action-btn" onclick="editPurchaseOrder('${group.id}')" title="Edit Order">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                </button>
+                <div class="table-actions-cell">
+                    <button class="action-btn" onclick="openPurchaseModalWithItems('${group.id}')" title="View Items">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </button>
+                    <button class="action-btn" onclick="editPurchaseOrder('${group.id}')" title="Edit Order">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                    </button>
+                    ${(group.status === 'open' || group.status === 'confirmed') ? `
+                    <button class="btn btn-sm btn-success" onclick="markOrderReadyToDispatch('${group.id}')" title="Mark Ready to Dispatch">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+                        Ready to Dispatch
+                    </button>
+                    ` : (group.status === 'ready_to_dispatch' ? `<span class="ready-badge">✓ Ready</span>` : (group.status === 'dispatched' ? `<span class="status-badge status-dispatched">Dispatched</span>` : ''))}
+                </div>
             </td>
         `;
         tbody.appendChild(tr);
@@ -393,14 +403,15 @@ function renderFlatItems() {
             <td>${item.purchase_id}</td>
             <td><strong>${item.part_code}</strong><br><small style="color:var(--text-muted)">${item.item_description?.substring(0, 25)}...</small></td>
             <td>${item.supplier_name || '-'}</td>
-            <td><span class="status-badge status-${item.pi_status}">${item.pi_status.toUpperCase()}</span></td>
+            <td><span class="status-badge status-${item.pi_status}">${item.pi_status.replace('_', ' ').toUpperCase()}</span></td>
             <td>${deliveryDate}</td>
             <td>₹${parseFloat(item.final_total || 0).toFixed(2)}</td>
             <td>
                 ${(item.pi_status === 'open' || item.pi_status === 'confirmed') ?
-                `<button class="btn btn-sm btn-primary" onclick="updateItemStatus(${item.id}, 'shipped')" title="Mark as Ready to Dispatch">Ready Dispatch</button>` :
-                (item.pi_status === 'shipped' ? `<span style="color:var(--success)">En Route</span>` :
-                    (item.pi_status === 'delivered' ? `<span style="color:var(--text-muted)">Delivered</span>` : '-'))}
+                `<button class="btn btn-sm btn-success" onclick="updateItemStatus(${item.id}, 'ready_to_dispatch')" title="Mark as Ready to Dispatch">Ready to Dispatch</button>` :
+                (item.pi_status === 'ready_to_dispatch' ? `<span style="color:var(--success); font-weight: 600;">✓ Ready</span>` :
+                    (item.pi_status === 'dispatched' || item.pi_status === 'shipped' ? `<span style="color:var(--warning);">En Route</span>` :
+                        (item.pi_status === 'delivered' ? `<span style="color:var(--text-muted);">Delivered</span>` : '-')))}
             </td>
         `;
         tbody.appendChild(tr);
@@ -412,6 +423,44 @@ async function updateItemStatus(itemId, status) {
     if (result.success) {
         showPurchaseToast(`Status updated to ${status}`, 'success');
         loadPurchaseOrders();
+    }
+}
+
+// Mark all items in a purchase order as ready to dispatch
+window.markOrderReadyToDispatch = async function (purchaseId) {
+    // Find all items with this purchase_id
+    const itemsToUpdate = purchaseOrdersData.filter(item => item.purchase_id === purchaseId);
+
+    if (itemsToUpdate.length === 0) {
+        showPurchaseToast('No items found for this order', 'error');
+        return;
+    }
+
+    // Confirm action
+    if (!confirm(`Mark ${itemsToUpdate.length} item(s) in order ${purchaseId} as Ready to Dispatch?`)) {
+        return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Update each item's status
+    for (const item of itemsToUpdate) {
+        const result = await fetchPurchaseAPI(`/purchase-orders/${item.id}/status?status=ready_to_dispatch`, { method: 'PATCH' });
+        if (result.success) {
+            successCount++;
+        } else {
+            errorCount++;
+        }
+    }
+
+    if (successCount > 0) {
+        showPurchaseToast(`${successCount} item(s) marked as Ready to Dispatch! They will now appear in the Dispatch module.`, 'success');
+        loadPurchaseOrders();
+    }
+
+    if (errorCount > 0) {
+        showPurchaseToast(`${errorCount} item(s) failed to update`, 'error');
     }
 }
 

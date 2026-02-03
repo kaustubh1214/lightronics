@@ -534,8 +534,247 @@
                     </div>
                 </div>
             </div>
+
+            <!-- DISPATCH MODULE -->
+            <div id="dispatch-view" class="module-view" style="display: none;">
+                <!-- Header -->
+                <header class="header">
+                    <div class="header-left">
+                        <h1>Dispatch Management</h1>
+                        <p class="subtitle">Track shipments from suppliers</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="btn btn-primary" onclick="openDispatchModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 5v14M5 12h14" />
+                            </svg>
+                            New Dispatch
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Dispatch Stats -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon products">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-dispatches">0</span>
+                            <span class="stat-label">Total Dispatches</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon categories">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="pending-dispatches">0</span>
+                            <span class="stat-label">In Transit</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon price">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 11l3 3L22 4"></path>
+                                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="ready-to-dispatch-count">0</span>
+                            <span class="stat-label">Ready to Dispatch</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dispatch Table -->
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3>Dispatch Records</h3>
+                        <div class="table-actions">
+                            <input type="text" id="dispatch-search-input" placeholder="Search dispatches..."
+                                class="search-input">
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="dispatch-table">
+                            <thead>
+                                <tr>
+                                    <th>Dispatch ID</th>
+                                    <th>Purchase ID</th>
+                                    <th>Dispatch Date</th>
+                                    <th>Dispatched By</th>
+                                    <th>Supplier</th>
+                                    <th>Consignment No.</th>
+                                    <th>Delivery Type</th>
+                                    <th>Expected Arrival</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dispatch-tbody">
+                                <!-- Dispatches will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DISPATCH FORM VIEW -->
+            <div id="dispatch-form-view" class="module-view" style="display: none;">
+                <header class="header">
+                    <div class="header-left">
+                        <button class="btn btn-secondary" onclick="closeDispatchModal()" style="margin-right: 15px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7" />
+                            </svg>
+                            Back
+                        </button>
+                        <div>
+                            <h1 id="dispatch-form-title">New Dispatch</h1>
+                            <p class="subtitle">Create a dispatch record for ready orders</p>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="card" style="padding: 24px; max-width: 1200px; margin: 0 auto;">
+                    <form id="dispatch-form">
+                        <div class="form-grid">
+                            <!-- DISPATCH HEADER -->
+                            <div class="form-section">
+                                <h3 class="section-title">Dispatch Details</h3>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="dispatch-purchase-order">Purchase Order *</label>
+                                        <select id="dispatch-purchase-order" required>
+                                            <option value="">Select Purchase Order</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="dispatch-dispatched-by">Dispatched By *</label>
+                                        <input type="text" id="dispatch-dispatched-by" required placeholder="Name">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="dispatch-supplier-name">Supplier</label>
+                                        <input type="text" id="dispatch-supplier-name" readonly class="readonly-input">
+                                        <input type="hidden" id="dispatch-supplier-id">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="dispatch-delivery-type">Delivery Type *</label>
+                                        <select id="dispatch-delivery-type" required>
+                                            <option value="">Select Type</option>
+                                            <option value="sea">Sea Freight</option>
+                                            <option value="air">Air Freight</option>
+                                            <option value="courier">Courier</option>
+                                            <option value="local">Local Transport</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="dispatch-consignment-type">Consignment Type *</label>
+                                        <select id="dispatch-consignment-type" required>
+                                            <option value="">Select Type</option>
+                                            <option value="Full">Full Shipment</option>
+                                            <option value="Partial">Partial Shipment</option>
+                                            <option value="Sample">Sample</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="dispatch-consignment-number">Consignment Number *</label>
+                                        <input type="text" id="dispatch-consignment-number" required
+                                            placeholder="e.g., AWB123456">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="dispatch-expected-date">Expected Arrival Date *</label>
+                                        <input type="date" id="dispatch-expected-date" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="dispatch-currency">Currency</label>
+                                        <select id="dispatch-currency">
+                                            <option value="USD">USD ($)</option>
+                                            <option value="RMB">RMB (¥)</option>
+                                            <option value="INR">INR (₹)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ITEMS TABLE -->
+                            <div class="form-section">
+                                <h3 class="section-title">Items to Dispatch</h3>
+                                <p class="form-hint">Quantity and Price can be adjusted. Other fields are read-only.</p>
+                                <div class="table-wrapper"
+                                    style="max-height: 350px; overflow-y: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 8px;">
+                                    <table id="dispatch-items-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Part Code</th>
+                                                <th>Description</th>
+                                                <th>Category</th>
+                                                <th>Ordered Qty</th>
+                                                <th>Dispatch Qty</th>
+                                                <th>Price</th>
+                                                <th>Total</th>
+                                                <th>Supplier</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="dispatch-items-tbody">
+                                            <tr>
+                                                <td colspan="8" style="text-align: center; color: var(--text-muted);">
+                                                    Select a purchase order to load items
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Totals -->
+                                <div
+                                    style="display: flex; justify-content: flex-end; gap: 30px; padding: 15px; background: var(--bg-secondary); border-radius: 8px;">
+                                    <div>
+                                        <span style="color: var(--text-muted);">Total Quantity:</span>
+                                        <strong id="dispatch-total-qty">0</strong>
+                                    </div>
+                                    <div>
+                                        <span style="color: var(--text-muted);">Total Amount:</span>
+                                        <strong id="dispatch-total-amount" style="color: var(--primary);">$0.00</strong>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="dispatch-remarks">Remarks</label>
+                                <textarea id="dispatch-remarks" rows="2" placeholder="Additional notes..."></textarea>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer" style="margin-top: 20px;">
+                            <button type="button" class="btn btn-secondary"
+                                onclick="closeDispatchModal()">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="submit-dispatch-btn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    style="width: 18px; height: 18px; margin-right: 5px;">
+                                    <path d="M5 12h14M12 5l7 7-7 7" />
+                                </svg>
+                                Create Dispatch
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
         </main>
     </div>
+
 
     <!-- Add/Edit Product Modal -->
     <div class="modal-overlay" id="product-modal">
@@ -874,15 +1113,139 @@
         </div>
     </div>
 
+    <!-- Dispatch View Modal -->
+    <div class="modal-overlay" id="dispatch-view-modal">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2>Dispatch Details</h2>
+                <button class="modal-close" onclick="closeDispatchViewModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div class="form-grid" style="gap: 15px;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Dispatch ID</label>
+                            <div id="view-dispatch-id" class="readonly-input"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Purchase ID</label>
+                            <div id="view-purchase-id" class="readonly-input"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <div id="view-status" class="readonly-input"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Dispatch Date</label>
+                            <div id="view-dispatch-date"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Dispatched By</label>
+                            <div id="view-dispatched-by"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Supplier</label>
+                            <div id="view-supplier-name"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Delivery Type</label>
+                            <div id="view-delivery-type"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Consignment Type</label>
+                            <div id="view-consignment-type"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Expected Arrival</label>
+                            <div id="view-expected-date"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Consignment Number</label>
+                            <div id="view-consignment-number"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; font-weight: bold;">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Saved At</label>
+                            <div id="view-consignment-saved"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px; color: var(--text-muted);">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Currency</label>
+                            <div id="view-currency"
+                                style="padding: 10px; background: var(--bg-secondary); border-radius: 6px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Items Table -->
+                <h4 style="margin: 20px 0 10px; color: var(--text-color);">Dispatch Items</h4>
+                <div class="table-wrapper"
+                    style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Part Code</th>
+                                <th>Description</th>
+                                <th>Category</th>
+                                <th>Ordered</th>
+                                <th>Dispatched</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="view-dispatch-items-tbody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Totals -->
+                <div
+                    style="display: flex; justify-content: flex-end; gap: 30px; padding: 15px; background: var(--bg-secondary); border-radius: 8px; margin-top: 15px;">
+                    <div>
+                        <span style="color: var(--text-muted);">Total Quantity:</span>
+                        <strong id="view-total-qty">0</strong>
+                    </div>
+                    <div>
+                        <span style="color: var(--text-muted);">Total Amount:</span>
+                        <strong id="view-total-amount" style="color: var(--primary);">$0.00</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeDispatchViewModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification -->
     <div class="toast" id="toast">
         <span class="toast-message"></span>
     </div>
 
+
     <!-- Choices.js for searchable dropdowns -->
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
-    <script src="/static/app.js?v=16"></script>
-    <script src="/static/purchase.js?v=101"></script>
+    <script src="/static/app.js?v=17"></script>
+    <script src="/static/purchase.js?v=104"></script>
+    <script src="/static/styles.css?v=5"></script>
+    <script src="/static/dispatch.js?v=2"></script>
 </body>
 
 </html>

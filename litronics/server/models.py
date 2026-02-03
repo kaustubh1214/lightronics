@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Table,
+    text,
 )
 from sqlalchemy import event
 from sqlalchemy.orm import relationship
@@ -338,3 +339,117 @@ class PurchasePayment(Base):
     purchase_order = relationship("PurchaseOrder", back_populates="payments")
 
 
+# =============================================================================
+# Dispatch Models
+# =============================================================================
+
+class DispatchMaster(Base):
+    """Dispatch header/master table for tracking shipments from suppliers."""
+    __tablename__ = "dispatch_master"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Unique Dispatch ID for tracking
+    dispatch_id = Column(String(50), unique=True, index=True, nullable=False)
+    
+    # Linked Purchase Order ID (reference)
+    purchase_id = Column(String(50), index=True, nullable=False)
+    
+    # Dispatch Info
+    dispatch_date = Column(DateTime, default=datetime.now)  # Auto-saved when created
+    dispatched_by = Column(String(100), nullable=False)
+    
+    # Delivery Details
+    delivery_type = Column(String(50), nullable=False)  # sea, air, courier, local
+    consignment_type = Column(String(100), nullable=False)  # Full, Partial, etc.
+    consignment_number = Column(String(100), nullable=False)
+    consignment_saved_at = Column(DateTime, default=datetime.now)  # Exact datetime when saved
+    expected_arrival_date = Column(DateTime, nullable=False)
+    
+    # Supplier Info
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"))
+    supplier_name = Column(String(150))
+    
+    # Currency
+    currency = Column(String(10), default="USD")
+    
+    # Totals (calculated)
+    total_quantity = Column(Integer, default=0)
+    total_amount = Column(Float, default=0)
+    
+    # Status
+    status = Column(String(50), default="dispatched")  # dispatched, in_transit, delivered, cancelled
+    remarks = Column(String(500))
+    
+    # Metadata
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Relationships
+    supplier = relationship("Supplier")
+    items = relationship("DispatchItem", back_populates="dispatch", cascade="all, delete-orphan")
+
+
+class DispatchItem(Base):
+    """Individual items in a dispatch, linked to purchase orders."""
+    __tablename__ = "dispatch_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Link to Dispatch Master
+    dispatch_id = Column(Integer, ForeignKey("dispatch_master.id"), nullable=False)
+    
+    # Link to Purchase Order (item level)
+    purchase_order_id = Column(Integer, ForeignKey("purchase_orders.id"))
+    
+    # Product Info (copied from PO for quick reference - NOT editable)
+    part_code = Column(String(50))
+    description = Column(String(255))
+    hsn_code = Column(String(20))
+    category_name = Column(String(100))
+    
+    # Supplier (NOT editable)
+    supplier_name = Column(String(150))
+    
+    # Quantity (EDITABLE - but cannot exceed ordered quantity)
+    ordered_quantity = Column(Integer, default=0)  # Original quantity from PO
+    dispatch_quantity = Column(Integer, default=0)  # Actual dispatched quantity
+    
+    # Pricing (EDITABLE for dispatch adjustments)
+    price_currency = Column(String(10), default="USD")
+    original_price = Column(Float, default=0)  # Original price from PO
+    dispatch_price = Column(Float, default=0)  # Adjusted price for this dispatch
+    
+    # Calculated
+    total = Column(Float, default=0)  # dispatch_quantity * dispatch_price
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Relationships
+    dispatch = relationship("DispatchMaster", back_populates="items")
+    purchase_order = relationship("PurchaseOrder")
+
+
+# =============================================================================
+# Dispatch ID Generation Hook
+# =============================================================================
+
+@event.listens_for(DispatchMaster, "before_insert")
+def _dispatch_master_before_insert(mapper, connection, target: DispatchMaster):  # noqa: ARG001
+    """Generate unique dispatch ID if not provided."""
+    if not getattr(target, "dispatch_id", None) or not str(target.dispatch_id).strip():
+        # Generate dispatch ID based on current count
+        result = connection.execute(
+            text("SELECT COUNT(*) FROM dispatch_master")
+        )
+        count = result.scalar() or 0
+        target.dispatch_id = f"DSP-{datetime.now().strftime('%Y%m')}-{count + 1:04d}"
+    
+    if not getattr(target, "dispatch_date", None):
+        target.dispatch_date = datetime.now()
+    
+    if not getattr(target, "consignment_saved_at", None):
+        target.consignment_saved_at = datetime.now()
