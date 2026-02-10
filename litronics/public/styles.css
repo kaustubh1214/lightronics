@@ -199,8 +199,11 @@ body {
 .main-content {
     flex: 1;
     margin-left: var(--sidebar-width);
-    padding: 24px 32px;
+    padding: 24px 20px;
     min-height: 100vh;
+    overflow-x: auto;
+    max-width: calc(100vw - var(--sidebar-width));
+    box-sizing: border-box;
 }
 
 /* Tabs */
@@ -444,6 +447,13 @@ body {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
+}
+
+.status-pending {
+    background: rgba(139, 92, 246, 0.15);
+    /* Purple */
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.3);
 }
 
 /* Stats Grid */
@@ -885,6 +895,57 @@ tbody tr:hover {
     background: linear-gradient(90deg, rgba(239, 68, 68, 0.1) 0%, var(--bg-card) 100%);
 }
 
+/* Column Filters in Table Headers */
+.column-filter {
+    display: block;
+    background: var(--bg-darker);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    width: 100%;
+    margin-top: 8px;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+}
+
+.column-filter:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+    background: var(--bg-input);
+}
+
+.column-filter::placeholder {
+    color: var(--text-muted);
+}
+
+/* Custom Select Style for Filters */
+select.column-filter {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+    cursor: pointer;
+}
+
+/* Table Header Adjustment for Filters */
+th {
+    vertical-align: top;
+    padding-bottom: 20px;
+    white-space: nowrap;
+    /* Prevent headers from breaking awkwardly */
+}
+
+/* Ensure inputs don't overflow */
+th input,
+th select {
+    min-width: 80px;
+    /* absolute minimum */
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
     .form-row.three-col {
@@ -1066,4 +1127,92 @@ tbody tr:hover {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Filter Bar Styles */
+.filter-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+    align-items: end;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+/* Dispatch table compact styles */
+#dispatch-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+#dispatch-table th {
+    padding: 10px 5px;
+    font-size: 0.7rem;
+    white-space: normal;
+    word-wrap: break-word;
+    line-height: 1.3;
+}
+
+#dispatch-table td {
+    padding: 10px 5px;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.3;
+}
+
+#dispatch-table td:last-child {
+    overflow: visible;
+    text-align: center;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+#dispatch-table td:last-child .action-btn {
+    padding: 4px;
+    flex-shrink: 0;
+}
+
+#dispatch-table td:last-child .action-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.filter-group label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.filter-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    width: 100%;
+    transition: all var(--transition-fast);
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }

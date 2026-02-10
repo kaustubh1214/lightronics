@@ -105,36 +105,41 @@ function renderDispatches() {
     const tbody = document.getElementById('dispatch-tbody');
     if (!tbody) return;
 
-    if (dispatchesData.length === 0) {
+    // Use calcFilteredDispatches to avoid cache conflicts
+    const filteredDispatches = typeof calcFilteredDispatches === 'function' ? calcFilteredDispatches() : dispatchesData;
+
+    console.log('Rendering dispatches, count:', filteredDispatches.length);
+
+    if (filteredDispatches.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="10" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                    No dispatch records found. Create a new dispatch from ready orders.
+                    No dispatch records found matching your filters.
                 </td>
             </tr>
         `;
         return;
     }
+    // ... rest of renderDispatches is same, just need to close the block or target carefully
+    // I will use StartLine/EndLine to target just the function call and top part
 
-    tbody.innerHTML = dispatchesData.map((d, index) => {
+    tbody.innerHTML = filteredDispatches.map((d, index) => {
         const statusClass = getStatusClass(d.status);
         const dispatchDate = d.dispatch_date ? new Date(d.dispatch_date).toLocaleDateString() : '-';
         const expectedDate = d.expected_arrival_date ? new Date(d.expected_arrival_date).toLocaleDateString() : '-';
-        const consignmentInfo = d.consignment_saved_at
-            ? `${d.consignment_number} <small style="color: var(--text-muted);">(${new Date(d.consignment_saved_at).toLocaleString()})</small>`
-            : d.consignment_number;
+        const statusLabel = (d.status || '').replace(/_/g, ' ').toUpperCase();
 
         return `
             <tr class="animate-in" style="animation-delay: ${index * 0.03}s;">
-                <td><strong>${d.dispatch_id}</strong></td>
-                <td>${d.purchase_id}</td>
+                <td title="${d.dispatch_id}"><strong>${d.dispatch_id}</strong></td>
+                <td title="${d.purchase_id}">${d.purchase_id}</td>
                 <td>${dispatchDate}</td>
-                <td>${d.dispatched_by || '-'}</td>
-                <td>${d.supplier_name || '-'}</td>
-                <td>${consignmentInfo}</td>
+                <td title="${d.dispatched_by || ''}">${d.dispatched_by || '-'}</td>
+                <td title="${d.supplier_name || ''}">${d.supplier_name || '-'}</td>
+                <td title="${d.consignment_number || ''}">${d.consignment_number || '-'}</td>
                 <td>${d.delivery_type || '-'}</td>
                 <td>${expectedDate}</td>
-                <td><span class="status-badge ${statusClass}">${d.status}</span></td>
+                <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
                 <td>
                     <button class="action-btn" onclick="viewDispatch(${d.id})" title="View Details">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -159,8 +164,65 @@ function renderDispatches() {
     }).join('');
 }
 
+// ...
+
+function calcFilteredDispatches() {
+    const getVal = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value.toLowerCase() : '';
+    };
+
+    const dispatchId = getVal('filter-dispatch-id');
+    const purchaseId = getVal('filter-dispatch-purchase-id');
+    const supplier = getVal('filter-dispatch-supplier');
+    const consignment = getVal('filter-dispatch-consignment');
+    const dispatchedBy = getVal('filter-dispatch-by');
+
+    // Exact match for dropdowns (but case insensitive)
+    const elDelivery = document.getElementById('filter-dispatch-delivery');
+    const delivery = elDelivery ? elDelivery.value : '';
+
+    const elStatus = document.getElementById('filter-dispatch-status');
+    const status = elStatus ? elStatus.value : '';
+
+    const elDate = document.getElementById('filter-dispatch-date');
+    const dispatchDate = elDate ? elDate.value : '';
+
+    const elExpected = document.getElementById('filter-expected-date');
+    const expectedDate = elExpected ? elExpected.value : '';
+
+    console.log('Filtering with:', { status, delivery, dispatchId });
+
+    return dispatchesData.filter(d => {
+        if (dispatchId && !d.dispatch_id.toLowerCase().includes(dispatchId)) return false;
+        if (purchaseId && !d.purchase_id.toLowerCase().includes(purchaseId)) return false;
+        if (supplier && !(d.supplier_name || '').toLowerCase().includes(supplier)) return false;
+        if (consignment && !(d.consignment_number || '').toLowerCase().includes(consignment)) return false;
+        if (dispatchedBy && !(d.dispatched_by || '').toLowerCase().includes(dispatchedBy)) return false;
+
+        if (delivery && (d.delivery_type || '').toString().toLowerCase().trim() !== delivery.toLowerCase().trim()) return false;
+        if (status && (d.status || '').toString().toLowerCase().trim() !== status.toLowerCase().trim()) return false;
+
+        if (dispatchDate) {
+            const dDate = d.dispatch_date ? d.dispatch_date.substring(0, 10) : '';
+            if (dDate !== dispatchDate) return false;
+        }
+
+        if (expectedDate) {
+            const eDate = d.expected_arrival_date ? d.expected_arrival_date.substring(0, 10) : '';
+            if (eDate !== expectedDate) return false;
+        }
+
+        return true;
+    });
+}
+
+// NOTE: Filter event listeners are handled inline in index.html via applyDispatchFilters().
+// Do NOT attach renderDispatches to filter elements here — it conflicts with inline filtering.
+
 function getStatusClass(status) {
     const classes = {
+        'ready_to_dispatch': 'status-pending', // New status
         'dispatched': 'status-open',
         'in_transit': 'status-confirmed',
         'delivered': 'status-delivered',
@@ -170,6 +232,7 @@ function getStatusClass(status) {
 }
 
 function updateDispatchStats() {
+    console.log('Updating dispatch stats...'); // Debug log
     const totalDispatches = document.getElementById('total-dispatches');
     const pendingDispatches = document.getElementById('pending-dispatches');
     const readyOrders = document.getElementById('ready-to-dispatch-count');
@@ -183,7 +246,7 @@ function updateDispatchStats() {
 }
 
 // =============================================================================
-// Event Listeners
+// Event Listeners (non-filter only)
 // =============================================================================
 
 function setupDispatchEventListeners() {
@@ -199,10 +262,14 @@ function setupDispatchEventListeners() {
         submitBtn.addEventListener('click', submitDispatch);
     }
 
-    // Search
-    const searchInput = document.getElementById('dispatch-search-input');
-    if (searchInput) {
-        searchInput.addEventListener('input', handleDispatchSearch);
+    // NOTE: Filter listeners are handled inline in index.html
+    // via applyDispatchFilters(). Do NOT add filter listeners here.
+}
+
+function resetDispatchFilters() {
+    // Delegate to inline function if it exists
+    if (typeof clearDispatchFiltersInline === 'function') {
+        clearDispatchFiltersInline();
     }
 }
 
@@ -544,13 +611,7 @@ function closeDispatchModal() {
 // =============================================================================
 
 function handleDispatchSearch(e) {
-    const query = e.target.value.toLowerCase();
-    const rows = document.querySelectorAll('#dispatch-tbody tr');
-
-    rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(query) ? '' : 'none';
-    });
+    renderDispatches();
 }
 
 // =============================================================================

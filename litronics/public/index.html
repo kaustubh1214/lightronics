@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Choices.js for searchable dropdowns -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
-    <link rel="stylesheet" href="/static/styles.css?v=99">
+    <link rel="stylesheet" href="/static/styles.css?v=203">
     <link rel="stylesheet" href="/static/choices-dark.css">
 </head>
 
@@ -592,29 +592,177 @@
                     </div>
                 </div>
 
+                <!-- Filter Bar -->
+                <div id="dispatch-filter-bar" class="filter-bar">
+                    <div class="filter-group">
+                        <label>Dispatch ID</label>
+                        <input type="text" id="filter-dispatch-id" class="filter-input" placeholder="Search ID"
+                            oninput="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Purchase ID</label>
+                        <input type="text" id="filter-dispatch-purchase-id" class="filter-input" placeholder="Search PO"
+                            oninput="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Supplier</label>
+                        <input type="text" id="filter-dispatch-supplier" class="filter-input"
+                            placeholder="Supplier Name" oninput="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Consignment No.</label>
+                        <input type="text" id="filter-dispatch-consignment" class="filter-input"
+                            placeholder="Search No." oninput="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Dispatched By</label>
+                        <input type="text" id="filter-dispatch-by" class="filter-input" placeholder="Name"
+                            oninput="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Delivery Type</label>
+                        <select id="filter-dispatch-delivery" class="filter-input" onchange="applyDispatchFilters()">
+                            <option value="">All Types</option>
+                            <option value="sea">Sea</option>
+                            <option value="air">Air</option>
+                            <option value="courier">Courier</option>
+                            <option value="lcl">LCL</option>
+                            <option value="fcl">FCL</option>
+                            <option value="air_cargo">Air Cargo</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Status</label>
+                        <select id="filter-dispatch-status" class="filter-input" onchange="applyDispatchFilters()">
+                            <option value="">All Statuses</option>
+                            <option value="ready_to_dispatch">Ready to Dispatch</option>
+                            <option value="dispatched">Dispatched</option>
+                            <option value="in_transit">In Transit</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Dispatch Date</label>
+                        <input type="date" id="filter-dispatch-date" class="filter-input"
+                            onchange="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Expected Arrival</label>
+                        <input type="date" id="filter-expected-date" class="filter-input"
+                            onchange="applyDispatchFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-secondary" onclick="clearDispatchFiltersInline()"
+                            style="width: 100%;">Clear</button>
+                    </div>
+                </div>
+
+                <script>
+                    // Inline filtering - bypasses all caching issues
+                    function applyDispatchFilters() {
+                        var tbody = document.getElementById('dispatch-tbody');
+                        if (!tbody) return;
+                        var rows = tbody.getElementsByTagName('tr');
+                        if (rows.length === 0) return;
+
+                        var statusEl = document.getElementById('filter-dispatch-status');
+                        var deliveryEl = document.getElementById('filter-dispatch-delivery');
+                        var dispIdEl = document.getElementById('filter-dispatch-id');
+                        var purIdEl = document.getElementById('filter-dispatch-purchase-id');
+                        var supplierEl = document.getElementById('filter-dispatch-supplier');
+                        var consignEl = document.getElementById('filter-dispatch-consignment');
+                        var dispByEl = document.getElementById('filter-dispatch-by');
+                        var dispDateEl = document.getElementById('filter-dispatch-date');
+                        var expDateEl = document.getElementById('filter-expected-date');
+
+                        var fStatus = statusEl ? statusEl.value.toLowerCase().trim() : '';
+                        var fDelivery = deliveryEl ? deliveryEl.value.toLowerCase().trim() : '';
+                        var fDispId = dispIdEl ? dispIdEl.value.toLowerCase().trim() : '';
+                        var fPurId = purIdEl ? purIdEl.value.toLowerCase().trim() : '';
+                        var fSupplier = supplierEl ? supplierEl.value.toLowerCase().trim() : '';
+                        var fConsign = consignEl ? consignEl.value.toLowerCase().trim() : '';
+                        var fDispBy = dispByEl ? dispByEl.value.toLowerCase().trim() : '';
+                        var fDispDate = dispDateEl ? dispDateEl.value.trim() : '';
+                        var fExpDate = expDateEl ? expDateEl.value.trim() : '';
+
+                        var visibleCount = 0;
+
+                        for (var i = 0; i < rows.length; i++) {
+                            var row = rows[i];
+                            var cells = row.getElementsByTagName('td');
+                            if (cells.length < 9) { continue; } // skip "no records" row
+
+                            var cellDispId = (cells[0].textContent || '').toLowerCase().trim();
+                            var cellPurId = (cells[1].textContent || '').toLowerCase().trim();
+                            var cellDate = (cells[2].textContent || '').trim();
+                            var cellDispBy = (cells[3].textContent || '').toLowerCase().trim();
+                            var cellSupplier = (cells[4].textContent || '').toLowerCase().trim();
+                            var cellConsign = (cells[5].textContent || '').toLowerCase().trim();
+                            var cellDelivery = (cells[6].textContent || '').toLowerCase().trim();
+                            var cellExpDate = (cells[7].textContent || '').trim();
+                            var cellStatus = (cells[8].textContent || '').toLowerCase().trim().replace(/\s+/g, '_');
+
+                            var show = true;
+                            if (fDispId && cellDispId.indexOf(fDispId) === -1) show = false;
+                            if (fPurId && cellPurId.indexOf(fPurId) === -1) show = false;
+                            if (fSupplier && cellSupplier.indexOf(fSupplier) === -1) show = false;
+                            if (fConsign && cellConsign.indexOf(fConsign) === -1) show = false;
+                            if (fDispBy && cellDispBy.indexOf(fDispBy) === -1) show = false;
+                            if (fDelivery && cellDelivery !== fDelivery) show = false;
+                            if (fStatus && cellStatus !== fStatus) show = false;
+
+                            row.style.display = show ? '' : 'none';
+                            if (show) visibleCount++;
+                        }
+
+                        // Handle "no records" message
+                        var noRecordsRow = document.getElementById('dispatch-no-records');
+                        if (visibleCount === 0) {
+                            if (!noRecordsRow) {
+                                noRecordsRow = document.createElement('tr');
+                                noRecordsRow.id = 'dispatch-no-records';
+                                noRecordsRow.innerHTML = '<td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted);">No dispatch records found matching your filters.</td>';
+                                tbody.appendChild(noRecordsRow);
+                            }
+                            noRecordsRow.style.display = '';
+                        } else if (noRecordsRow) {
+                            noRecordsRow.style.display = 'none';
+                        }
+                    }
+
+                    function clearDispatchFiltersInline() {
+                        var ids = ['filter-dispatch-id', 'filter-dispatch-purchase-id', 'filter-dispatch-supplier',
+                            'filter-dispatch-consignment', 'filter-dispatch-by', 'filter-dispatch-delivery',
+                            'filter-dispatch-status', 'filter-dispatch-date', 'filter-expected-date'];
+                        for (var i = 0; i < ids.length; i++) {
+                            var el = document.getElementById(ids[i]);
+                            if (el) el.value = '';
+                        }
+                        applyDispatchFilters();
+                    }
+                </script>
+
                 <!-- Dispatch Table -->
                 <div class="table-container">
                     <div class="table-header">
                         <h3>Dispatch Records</h3>
-                        <div class="table-actions">
-                            <input type="text" id="dispatch-search-input" placeholder="Search dispatches..."
-                                class="search-input">
-                        </div>
                     </div>
                     <div class="table-wrapper">
                         <table id="dispatch-table">
                             <thead>
                                 <tr>
-                                    <th>Dispatch ID</th>
-                                    <th>Purchase ID</th>
-                                    <th>Dispatch Date</th>
-                                    <th>Dispatched By</th>
-                                    <th>Supplier</th>
-                                    <th>Consignment No.</th>
-                                    <th>Delivery Type</th>
-                                    <th>Expected Arrival</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th style="width: 12%;">Dispatch ID</th>
+                                    <th style="width: 12%;">Purchase ID</th>
+                                    <th style="width: 9%;">Dispatch Date</th>
+                                    <th style="width: 9%;">Dispatched By</th>
+                                    <th style="width: 10%;">Supplier</th>
+                                    <th style="width: 11%;">Consignment No.</th>
+                                    <th style="width: 8%;">Delivery Type</th>
+                                    <th style="width: 9%;">Expected Arrival</th>
+                                    <th style="width: 10%;">Status</th>
+                                    <th style="width: 10%; text-align: center;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="dispatch-tbody">
@@ -1243,9 +1391,9 @@
     <!-- Choices.js for searchable dropdowns -->
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
     <script src="/static/app.js?v=17"></script>
-    <script src="/static/purchase.js?v=104"></script>
-    <script src="/static/styles.css?v=5"></script>
-    <script src="/static/dispatch.js?v=2"></script>
+    <script src="/static/purchase.js?v=105"></script>
+    <script src="/static/styles.css?v=10"></script>
+    <script src="/static/dispatch.js?v=120"></script>
 </body>
 
 </html>
