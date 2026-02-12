@@ -1,5 +1,6 @@
 /**
  * Litronics Product Management System - Frontend JavaScript
+ * Updated to use unified HSN Category Master
  */
 
 const API_BASE = '/api';
@@ -14,27 +15,28 @@ const productsTbody = document.getElementById('products-tbody');
 const searchInput = document.getElementById('search-input');
 const toast = document.getElementById('toast');
 
-// HSN Modal Elements
-const hsnModal = document.getElementById('hsn-modal');
-const hsnForm = document.getElementById('hsn-form');
-const manageHsnLink = document.getElementById('manage-hsn-link');
-const closeHsnModalBtn = document.getElementById('close-hsn-modal');
-const cancelHsnBtn = document.getElementById('cancel-hsn-btn');
+// Category Modal Elements (replaces old HSN modal)
+const categoryModal = document.getElementById('category-modal');
+const categoryForm = document.getElementById('category-form');
+const addNewCategoryLink = document.getElementById('add-new-category-link');
+const closeCategoryModalBtn = document.getElementById('close-category-modal');
+const cancelCategoryBtn = document.getElementById('cancel-category-btn');
 
 // Currency rates (will be fetched from API)
 let currencyRates = { USD: 83.50, RMB: 11.50, INR: 1 };
 
 // Choices.js instances for searchable dropdowns
-// Choices.js instances for searchable dropdowns
-let categoryChoices = null;
+let hsnCategoryChoices = null;
 let supplierChoices = null;
-let hsnChoices = null;
 
 // Global Data Storage
-let categoriesData = [];
+let hsnCategoryMasterData = [];
 let suppliersData = [];
-let hsnCodesData = [];
 let productsData = [];
+
+// Legacy data (backward compat)
+let categoriesData = [];
+let hsnCodesData = [];
 
 // Edit Mode Tracking
 let editingProductId = null;
@@ -48,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Modules
     try {
-        initializeChoices(); // Initialize product module dropdowns
+        initializeChoices();
 
         // Initialize Purchase Module if available
         if (typeof initializePurchaseModule === 'function') {
@@ -59,11 +61,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Initialization error:', e);
     }
 
-    loadCategories();
+    loadHsnCategoryMaster();
     loadSuppliers();
-    loadHsnCodes();
     loadCurrencyRates();
     loadProducts();
+
+    // Legacy loads (for purchase module backward compat)
+    loadCategories();
+    loadHsnCodes();
 
     try {
         setupEventListeners();
@@ -85,11 +90,9 @@ function setupNavigation() {
             const targetModule = item.dataset.module;
             console.log(`Navigating to: ${targetModule}`);
 
-            // Only proceed if module view exists
             const targetView = document.getElementById(`${targetModule}-view`);
             if (!targetView) {
                 console.warn(`View not found for module: ${targetModule}`);
-                // For modules not yet implemented
                 if (['products', 'purchase', 'dispatch'].includes(targetModule)) {
                     // Specific logic for implemented modules
                 } else {
@@ -98,19 +101,17 @@ function setupNavigation() {
                 }
             }
 
-            // Update nav state
             navItems.forEach(nav => nav.classList.remove('active'));
             item.classList.add('active');
 
-            // Update view state
             moduleViews.forEach(view => {
                 view.classList.remove('active');
-                view.style.display = 'none'; // Ensure display is none
+                view.style.display = 'none';
             });
 
             if (targetView) {
                 targetView.classList.add('active');
-                targetView.style.display = 'block'; // Force display block
+                targetView.style.display = 'block';
                 console.log(`activated view: ${targetModule}-view`);
             }
         });
@@ -118,10 +119,9 @@ function setupNavigation() {
 }
 
 // Initialize Choices.js dropdowns
-// Initialize Choices.js dropdowns
 function initializeChoices() {
-    // Category: Single-select searchable
-    categoryChoices = new Choices('#category_id', {
+    // HSN Category Master: Single-select searchable (replaces old category + HSN dropdowns)
+    hsnCategoryChoices = new Choices('#hsn_category_id', {
         searchEnabled: true,
         searchPlaceholderValue: 'Search categories...',
         itemSelectText: '',
@@ -139,17 +139,6 @@ function initializeChoices() {
         itemSelectText: '',
         placeholder: true,
         placeholderValue: 'Select Suppliers',
-        allowHTML: true,
-        shouldSort: false
-    });
-
-    // HSN Code: Single-select searchable
-    hsnChoices = new Choices('#hsn_code_id', {
-        searchEnabled: true,
-        searchPlaceholderValue: 'Search HSN codes...',
-        itemSelectText: '',
-        placeholder: true,
-        placeholderValue: 'Select HSN Code',
         allowHTML: true,
         shouldSort: false
     });
@@ -172,104 +161,135 @@ function setupEventListeners() {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('input', calculateLandedPrice);
-                // Format price fields on change/blur to show 4 decimal places (e.g., 0.2 -> 0.2000)
                 if (id.includes('form_unit_price')) {
                     el.addEventListener('change', (e) => {
                         const val = parseFloat(e.target.value) || 0;
-                        e.target.value = val.toFixed(4);
-                        calculateLandedPrice(); // Recalculate with formatted value
+                        // USD & RMB = 6 decimals, INR = 3 decimals
+                        if (id.includes('inr')) {
+                            e.target.value = val.toFixed(3);
+                        } else {
+                            e.target.value = val.toFixed(6);
+                        }
+                        calculateLandedPrice();
                     });
                 }
             }
         });
 
-    // HSN code change updates BCD and GST from HSN data
-    document.getElementById('hsn_code_id').addEventListener('change', (e) => {
-        const hsnId = parseInt(e.target.value);
-        const hsn = hsnCodesData.find(h => h.id === hsnId);
+    // =========================================================================
+    // HSN Category Master change → auto-fill HSN Code, BCD%, GST%
+    // =========================================================================
+    document.getElementById('hsn_category_id').addEventListener('change', (e) => {
+        const selectedId = parseInt(e.target.value);
+        const entry = hsnCategoryMasterData.find(c => c.id === selectedId);
 
-        if (hsn) {
-            if (hsn.basic_custom_duty_percentage !== undefined) {
-                document.getElementById('basic_custom_duty_percentage').value = hsn.basic_custom_duty_percentage;
-            }
-            if (hsn.gst_percentage !== undefined) {
-                document.getElementById('gst_percentage').value = hsn.gst_percentage;
-            }
-            // Display HSN category
-            const hsnCategoryField = document.getElementById('hsn_category_display');
-            if (hsnCategoryField) {
-                hsnCategoryField.value = hsn.hsn_category || '';
-            }
+        if (entry) {
+            // Auto-fill HSN Code (read-only)
+            const hsnField = document.getElementById('auto_hsn_code');
+            if (hsnField) hsnField.value = entry.hsn_code || '';
+
+            // Auto-fill Custom Duty %
+            const bcdField = document.getElementById('basic_custom_duty_percentage');
+            if (bcdField) bcdField.value = entry.custom_duty_percentage || 0;
+
+            // Auto-fill GST %
+            const gstField = document.getElementById('gst_percentage');
+            if (gstField) gstField.value = entry.gst_percentage || 18;
         } else {
-            const hsnCategoryField = document.getElementById('hsn_category_display');
-            if (hsnCategoryField) hsnCategoryField.value = '';
+            // Clear auto-filled fields
+            const hsnField = document.getElementById('auto_hsn_code');
+            if (hsnField) hsnField.value = '';
+            const bcdField = document.getElementById('basic_custom_duty_percentage');
+            if (bcdField) bcdField.value = 0;
+            const gstField = document.getElementById('gst_percentage');
+            if (gstField) gstField.value = 18;
         }
+
         calculateLandedPrice();
     });
 
-    // Category change updates freight
-    document.getElementById('category_id').addEventListener('change', (e) => {
-        const catId = parseInt(e.target.value);
-        const category = categoriesData.find(c => c.id === catId);
+    // =========================================================================
+    // Category Modal (Add New Category) events
+    // =========================================================================
+    if (addNewCategoryLink) {
+        addNewCategoryLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            openCategoryModal();
+        });
+    }
 
-        if (category && category.freight_percentage !== undefined) {
-            document.getElementById('freight_percentage').value = category.freight_percentage;
-            calculateLandedPrice();
-        }
-    });
-
-    // HSN Management
-    manageHsnLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        openHsnModal();
-    });
-
-    closeHsnModalBtn.addEventListener('click', () => closeHsnModal());
-    cancelHsnBtn.addEventListener('click', () => closeHsnModal());
-    hsnModal.addEventListener('click', (e) => {
-        if (e.target === hsnModal) closeHsnModal();
-    });
-
-    hsnForm.addEventListener('submit', handleHsnFormSubmit);
+    if (closeCategoryModalBtn) {
+        closeCategoryModalBtn.addEventListener('click', () => closeCategoryModal());
+    }
+    if (cancelCategoryBtn) {
+        cancelCategoryBtn.addEventListener('click', () => closeCategoryModal());
+    }
+    if (categoryModal) {
+        categoryModal.addEventListener('click', (e) => {
+            if (e.target === categoryModal) closeCategoryModal();
+        });
+    }
+    if (categoryForm) {
+        categoryForm.addEventListener('submit', handleCategoryFormSubmit);
+    }
 }
 
-// HSN Modal Functions
-function openHsnModal() {
-    hsnForm.reset();
-    hsnModal.classList.add('active');
+
+// =============================================================================
+// Category Modal Functions (replaces old HSN modal)
+// =============================================================================
+
+function openCategoryModal() {
+    categoryForm.reset();
+    categoryModal.classList.add('active');
 }
 
-function closeHsnModal() {
-    hsnModal.classList.remove('active');
+function closeCategoryModal() {
+    categoryModal.classList.remove('active');
 }
 
-async function handleHsnFormSubmit(e) {
+async function handleCategoryFormSubmit(e) {
     e.preventDefault();
 
-    const formData = new FormData(hsnForm);
+    const formData = new FormData(categoryForm);
     const data = {};
     formData.forEach((value, key) => data[key] = value);
 
-    const result = await fetchAPI('/hsn-codes', {
+    // Convert numeric fields
+    data.custom_duty_percentage = parseFloat(data.custom_duty_percentage) || 0;
+    data.gst_percentage = parseFloat(data.gst_percentage) || 18;
+
+    const result = await fetchAPI('/hsn-category-master', {
         method: 'POST',
         body: JSON.stringify(data)
     });
 
     if (result.success) {
-        showToast('HSN Code added successfully', 'success');
-        closeHsnModal();
-        await loadHsnCodes(); // Reload dropdown
+        showToast('Category added successfully!', 'success');
+        closeCategoryModal();
+        await loadHsnCategoryMaster(); // Reload dropdown
 
-        // Auto-select the new HSN
-        if (hsnChoices) {
-            hsnChoices.setChoiceByValue(result.id);
+        // Auto-select the newly created category
+        if (hsnCategoryChoices && result.id) {
+            setTimeout(() => {
+                hsnCategoryChoices.setChoiceByValue(result.id);
+                hsnCategoryChoices.setChoiceByValue(String(result.id));
+
+                // Trigger auto-fill
+                const event = new Event('change');
+                document.getElementById('hsn_category_id').dispatchEvent(event);
+            }, 100);
         }
     } else {
-        showToast(result.error || result.detail || 'Error adding HSN Code', 'error');
+        showToast(result.error || result.detail || 'Error adding category', 'error');
     }
 }
 
+
+// =============================================================================
 // API Calls
+// =============================================================================
+
 async function fetchAPI(endpoint, options = {}) {
     try {
         const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -284,23 +304,48 @@ async function fetchAPI(endpoint, options = {}) {
     }
 }
 
-// Load dropdown data
+
+// =============================================================================
+// Data Loading
+// =============================================================================
+
+async function loadHsnCategoryMaster() {
+    const result = await fetchAPI('/hsn-category-master');
+    if (result.success || result.data) {
+        hsnCategoryMasterData = result.data || result;
+        const choicesData = hsnCategoryMasterData.map(entry => ({
+            value: entry.id,
+            label: `${entry.category_name}  [HSN: ${entry.hsn_code}]`,
+            customProperties: {
+                hsn_code: entry.hsn_code,
+                duty: entry.custom_duty_percentage,
+                gst: entry.gst_percentage,
+            }
+        }));
+
+        if (hsnCategoryChoices) {
+            hsnCategoryChoices.setChoices(choicesData, 'value', 'label', true);
+        }
+
+        // Update categories count stat
+        const el = document.getElementById('total-categories');
+        if (el) el.textContent = hsnCategoryMasterData.length;
+    }
+}
+
+// Legacy: load old categories (for purchase module backward compat)
 async function loadCategories() {
     const result = await fetchAPI('/categories');
     if (result.success || result.data) {
         categoriesData = result.data || result;
-        const choicesData = categoriesData.map(cat => ({
-            value: cat.id,
-            label: cat.category_name,
-            customProperties: {
-                freight: cat.freight_percentage
-            }
-        }));
+    }
+}
 
-        if (categoryChoices) {
-            categoryChoices.setChoices(choicesData, 'value', 'label', true);
-        }
-        document.getElementById('total-categories').textContent = categoriesData.length;
+// Legacy: load old HSN codes (for purchase module backward compat)
+async function loadHsnCodes() {
+    const result = await fetchAPI('/hsn-codes');
+    if (result.success || result.data) {
+        hsnCodesData = result.data || result;
     }
 }
 
@@ -320,27 +365,7 @@ async function loadSuppliers() {
     }
 }
 
-async function loadHsnCodes() {
-    const result = await fetchAPI('/hsn-codes');
-    if (result.success || result.data) {
-        hsnCodesData = result.data || result;
-        const choicesData = hsnCodesData.map(hsn => ({
-            value: hsn.id,
-            label: `${hsn.hsn_code} - ${hsn.description || ''} [${hsn.hsn_category || ''}]`,
-            customProperties: {
-                bcd: hsn.basic_custom_duty_percentage,
-                gst: hsn.gst_percentage,
-                category: hsn.hsn_category
-            }
-        }));
-
-        if (hsnChoices) {
-            hsnChoices.setChoices(choicesData, 'value', 'label', true);
-        }
-    }
-}
-
-// Function to get HSN data by ID
+// Function to get HSN data by ID (legacy compat)
 function getHsnById(hsnId) {
     return hsnCodesData.find(hsn => hsn.id === parseInt(hsnId));
 }
@@ -357,8 +382,6 @@ async function loadCurrencyRates() {
     }
 }
 
-
-
 async function loadProducts() {
     const result = await fetchAPI('/products');
     if (result.success || result.data) {
@@ -366,13 +389,17 @@ async function loadProducts() {
         renderProducts(productsData);
         document.getElementById('total-products').textContent = productsData.length;
 
-        // Calculate average landed price
         if (productsData.length > 0) {
             const avg = productsData.reduce((sum, p) => sum + parseFloat(p.landed_price_inr || 0), 0) / productsData.length;
             document.getElementById('avg-price').textContent = `₹${avg.toFixed(2)}`;
         }
     }
 }
+
+
+// =============================================================================
+// Rendering
+// =============================================================================
 
 function renderProducts(products) {
     productsTbody.innerHTML = '';
@@ -389,19 +416,40 @@ function renderProducts(products) {
     }
 
     products.forEach((product, index) => {
+        const hasPrice = (parseFloat(product.unit_price_usd || 0) > 0) ||
+            (parseFloat(product.unit_price_rmb || 0) > 0) ||
+            (parseFloat(product.unit_price_inr || 0) > 0);
+
         const tr = document.createElement('tr');
         tr.className = 'animate-in';
         tr.style.animationDelay = `${index * 0.05}s`;
+        tr.dataset.hasPrice = hasPrice ? 'yes' : 'no';
+
+        if (!hasPrice) {
+            tr.classList.add('no-price-row');
+        }
+
+        const priceUsd = hasPrice
+            ? `$${parseFloat(product.unit_price_usd || 0).toFixed(6)}`
+            : '<span class="no-price-badge">⚠ No Price</span>';
+        const priceRmb = hasPrice
+            ? `¥${parseFloat(product.unit_price_rmb || 0).toFixed(6)}`
+            : '';
+
+        const landedDisplay = hasPrice
+            ? `₹${parseFloat(product.landed_price_inr || 0).toFixed(2)}`
+            : '<span class="no-price-badge">Pending</span>';
+
         tr.innerHTML = `
             <td><strong>${product.part_code}</strong></td>
             <td>${product.description}</td>
             <td><span class="category-badge">${product.category_name || '-'}</span></td>
-            <td>$${parseFloat(product.unit_price_usd || 0).toFixed(4)}</td>
-            <td>¥${parseFloat(product.unit_price_rmb || 0).toFixed(4)}</td>
+            <td>${priceUsd}</td>
+            <td>${priceRmb}</td>
             <td>${product.basic_custom_duty_percentage || 0}%</td>
             <td>${product.freight_percentage || 0}%</td>
             <td>${product.gst_percentage || 18}%</td>
-            <td style="color: var(--secondary); font-weight: 600;">₹${parseFloat(product.landed_price_inr || 0).toFixed(2)}</td>
+            <td style="color: ${hasPrice ? 'var(--secondary)' : 'var(--text-muted)'}; font-weight: 600;">${landedDisplay}</td>
             <td>
                 <button class="action-btn" onclick="editProduct(${product.id})" title="Edit">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -419,29 +467,35 @@ function renderProducts(products) {
         `;
         productsTbody.appendChild(tr);
     });
+
+    // Update no-price count in stats
+    const noPriceCount = products.filter(p =>
+        (parseFloat(p.unit_price_usd || 0) === 0) &&
+        (parseFloat(p.unit_price_rmb || 0) === 0) &&
+        (parseFloat(p.unit_price_inr || 0) === 0)
+    ).length;
+
+    // After render, reapply any active filter
+    applyProductFilters();
 }
 
-// Update currency symbol
-function updateCurrencySymbol() {
-    const currency = document.getElementById('primary_currency').value;
-    const symbolMap = { 'USD': '$', 'RMB': '¥', 'INR': '₹' };
-    document.getElementById('currency-symbol').textContent = symbolMap[currency] || '$';
-}
 
-// Multi-currency handling
-let currentProductPrices = { USD: 0, RMB: 0, INR: 0 };
+// =============================================================================
+// Modal Functions
+// =============================================================================
 
-// Modal functions
 function openModal(product = null) {
     productForm.reset();
 
-    // Track if we're editing
     editingProductId = product ? product.id : null;
 
     // Reset Choices
-    if (categoryChoices) categoryChoices.removeActiveItems();
+    if (hsnCategoryChoices) hsnCategoryChoices.removeActiveItems();
     if (supplierChoices) supplierChoices.removeActiveItems();
-    if (hsnChoices) hsnChoices.removeActiveItems();
+
+    // Clear auto-filled fields
+    const hsnField = document.getElementById('auto_hsn_code');
+    if (hsnField) hsnField.value = '';
 
     document.getElementById('modal-title').textContent = product ? 'Edit Product' : 'Add New Product';
 
@@ -451,29 +505,28 @@ function openModal(product = null) {
             if (el) el.value = product[key];
         });
 
-        // Load all existing prices into separate inputs
-        document.getElementById('form_unit_price_usd').value = parseFloat(product.unit_price_usd || 0).toFixed(4);
-        document.getElementById('form_unit_price_rmb').value = parseFloat(product.unit_price_rmb || 0).toFixed(4);
-        document.getElementById('form_unit_price_inr').value = parseFloat(product.unit_price_inr || 0).toFixed(4);
+        // Load prices
+        document.getElementById('form_unit_price_usd').value = parseFloat(product.unit_price_usd || 0).toFixed(6);
+        document.getElementById('form_unit_price_rmb').value = parseFloat(product.unit_price_rmb || 0).toFixed(6);
+        document.getElementById('form_unit_price_inr').value = parseFloat(product.unit_price_inr || 0).toFixed(3);
 
-        // Set primary currency - No longer used in UI, auto-detected
-        // const currency = product.primary_currency || 'USD';
-        // document.getElementById('primary_currency').value = currency;
-
-        // Use a timeout to ensure DOM is ready and Choices is steady
         setTimeout(() => {
-            if (categoryChoices && product.category_id) {
-                // Try both number and string to be safe
-                categoryChoices.setChoiceByValue(parseInt(product.category_id));
-                categoryChoices.setChoiceByValue(String(product.category_id));
+            // Set the HSN Category Master dropdown
+            if (hsnCategoryChoices && product.hsn_category_id) {
+                hsnCategoryChoices.setChoiceByValue(parseInt(product.hsn_category_id));
+                hsnCategoryChoices.setChoiceByValue(String(product.hsn_category_id));
+
+                // Auto-fill the HSN/duty/GST fields from selected category
+                const entry = hsnCategoryMasterData.find(c => c.id === parseInt(product.hsn_category_id));
+                if (entry) {
+                    const hf = document.getElementById('auto_hsn_code');
+                    if (hf) hf.value = entry.hsn_code || '';
+                    document.getElementById('basic_custom_duty_percentage').value = entry.custom_duty_percentage || 0;
+                    document.getElementById('gst_percentage').value = entry.gst_percentage || 18;
+                }
             }
 
-            if (hsnChoices && product.hsn_code_id) {
-                hsnChoices.setChoiceByValue(parseInt(product.hsn_code_id));
-                hsnChoices.setChoiceByValue(String(product.hsn_code_id));
-            }
-
-            // Handle supplier selection (multi-select)
+            // Handle supplier selection
             if (product.supplier_ids && supplierChoices) {
                 const idsNum = Array.isArray(product.supplier_ids)
                     ? product.supplier_ids.map(id => parseInt(id))
@@ -484,32 +537,34 @@ function openModal(product = null) {
                 supplierChoices.setChoiceByValue(idsNum);
                 supplierChoices.setChoiceByValue(idsStr);
             }
+
             console.log('Choices set for product:', product.id);
         }, 50);
 
-        console.log('Editing Product Data:', product); // Debug log
+        console.log('Editing Product Data:', product);
     } else {
-        // Default for new product
-        // document.getElementById('primary_currency').value = 'USD';
-        document.getElementById('form_unit_price_usd').value = '0.0000';
-        document.getElementById('form_unit_price_rmb').value = '0.0000';
-        document.getElementById('form_unit_price_inr').value = '0.0000';
+        document.getElementById('form_unit_price_usd').value = '0.000000';
+        document.getElementById('form_unit_price_rmb').value = '0.000000';
+        document.getElementById('form_unit_price_inr').value = '0.000';
     }
 
     productModal.classList.add('active');
     document.body.style.overflow = 'hidden';
 
-    // Recalculate based on loaded values - with slight delay to ensure values are set
     setTimeout(calculateLandedPrice, 100);
 }
 
 function closeModal() {
     productModal.classList.remove('active');
     document.body.style.overflow = '';
-    editingProductId = null; // Reset edit mode
+    editingProductId = null;
 }
 
-// Function to determine primary currency based on inputs
+
+// =============================================================================
+// Form Submission
+// =============================================================================
+
 function getDeterminePrimaryCurrency() {
     const usd = parseFloat(document.getElementById('form_unit_price_usd').value) || 0;
     const rmb = parseFloat(document.getElementById('form_unit_price_rmb').value) || 0;
@@ -518,21 +573,16 @@ function getDeterminePrimaryCurrency() {
     if (usd > 0) return 'USD';
     if (rmb > 0) return 'RMB';
     if (inr > 0) return 'INR';
-    return 'USD'; // Default
+    return 'USD';
 }
 
-
-
-// Form submission
 async function handleFormSubmit(e) {
     e.preventDefault();
 
     const formData = new FormData(productForm);
     const data = {};
 
-    // Process basic fields
     formData.forEach((value, key) => {
-        // Skip explicitly handled fields
         if (!['supplier_ids', 'form_unit_price_usd', 'form_unit_price_rmb', 'form_unit_price_inr', 'primary_currency'].includes(key)) {
             if (value) {
                 data[key] = isNaN(value) ? value : parseFloat(value) || value;
@@ -540,30 +590,27 @@ async function handleFormSubmit(e) {
         }
     });
 
-    // Handle Pricing - Read directly from the 3 separate inputs
+    // Pricing
     data.unit_price_usd = parseFloat(document.getElementById('form_unit_price_usd').value) || 0;
     data.unit_price_rmb = parseFloat(document.getElementById('form_unit_price_rmb').value) || 0;
     data.unit_price_inr = parseFloat(document.getElementById('form_unit_price_inr').value) || 0;
     data.primary_currency = getDeterminePrimaryCurrency();
 
-    // Get multiple select values
+    // Suppliers
     const supplierSelect = document.getElementById('supplier_ids');
     data.supplier_ids = Array.from(supplierSelect.selectedOptions).map(opt => parseInt(opt.value));
 
-    // Convert IDs to integers
-    if (data.category_id) data.category_id = parseInt(data.category_id);
-    if (data.hsn_code_id) data.hsn_code_id = parseInt(data.hsn_code_id);
+    // HSN Category Master ID
+    if (data.hsn_category_id) data.hsn_category_id = parseInt(data.hsn_category_id);
 
-    // Determine if creating or updating
+    // Submit
     let result;
     if (editingProductId) {
-        // Update existing product
         result = await fetchAPI(`/products/${editingProductId}`, {
             method: 'PUT',
             body: JSON.stringify(data)
         });
     } else {
-        // Create new product
         result = await fetchAPI('/products', {
             method: 'POST',
             body: JSON.stringify(data)
@@ -579,12 +626,15 @@ async function handleFormSubmit(e) {
     }
 }
 
-// Calculate landed price
+
+// =============================================================================
+// Calculate Landed Price
+// =============================================================================
+
 function calculateLandedPrice() {
     const container = document.getElementById('landed-price-container');
     if (!container) return;
 
-    // Get input values
     const prices = {
         'USD': parseFloat(document.getElementById('form_unit_price_usd').value) || 0,
         'RMB': parseFloat(document.getElementById('form_unit_price_rmb').value) || 0,
@@ -598,8 +648,7 @@ function calculateLandedPrice() {
     let html = '';
     let hasPrice = false;
 
-    // Helper to format currency
-    const formatINR = (val) => '₹' + val.toFixed(4);
+    const formatINR = (val) => '₹' + val.toFixed(3);
 
     ['USD', 'RMB', 'INR'].forEach(currency => {
         const unitPrice = prices[currency];
@@ -613,12 +662,12 @@ function calculateLandedPrice() {
             const freightValue = basePrice * (freightPercent / 100);
             const subtotal = basePrice + bcdValue + freightValue;
             const gstValue = subtotal * (gstPercent / 100);
-            const landedPrice = subtotal; // GST excluded from landed cost per user request
+            const landedPrice = subtotal;
 
             html += `
                 <div class="price-breakdown" style="margin-bottom: 15px; border: 1px solid var(--border); padding: 10px; border-radius: 6px;">
                     <div style="font-weight: 600; color: var(--primary); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
-                        Based on ${currency} Price (${symbol}${unitPrice.toFixed(4)})
+                        Based on ${currency} Price (${symbol}${unitPrice.toFixed(currency === 'INR' ? 3 : 6)})
                     </div>
                     <div class="price-row">
                         <span>Base Price (INR):</span>
@@ -656,18 +705,47 @@ function calculateLandedPrice() {
     container.innerHTML = html;
 }
 
-// Search
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
 function handleSearch(e) {
-    const query = e.target.value.toLowerCase();
+    applyProductFilters();
+}
+
+// Apply both search and price filter together
+function applyProductFilters() {
+    const query = (document.getElementById('search-input').value || '').toLowerCase();
+    const priceFilter = (document.getElementById('price-filter') || {}).value || 'all';
     const rows = productsTbody.querySelectorAll('tr');
 
     rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(query) ? '' : 'none';
+        // Skip empty-state rows
+        if (!row.dataset.hasPrice && row.dataset.hasPrice !== 'yes' && row.dataset.hasPrice !== 'no') {
+            return;
+        }
+
+        let showBySearch = true;
+        let showByPrice = true;
+
+        // Search filter
+        if (query) {
+            const text = row.textContent.toLowerCase();
+            showBySearch = text.includes(query);
+        }
+
+        // Price filter
+        if (priceFilter === 'no-price') {
+            showByPrice = row.dataset.hasPrice === 'no';
+        } else if (priceFilter === 'with-price') {
+            showByPrice = row.dataset.hasPrice === 'yes';
+        }
+
+        row.style.display = (showBySearch && showByPrice) ? '' : 'none';
     });
 }
 
-// Delete product
 async function deleteProduct(id) {
     if (!confirm('Are you sure you want to delete this product?')) return;
 
@@ -680,7 +758,6 @@ async function deleteProduct(id) {
     }
 }
 
-// Edit product
 async function editProduct(id) {
     const product = productsData.find(p => p.id === id);
     if (product) {
@@ -690,7 +767,6 @@ async function editProduct(id) {
     }
 }
 
-// Toast notification
 function showToast(message, type = 'success') {
     toast.className = `toast ${type} show`;
     toast.querySelector('.toast-message').textContent = message;

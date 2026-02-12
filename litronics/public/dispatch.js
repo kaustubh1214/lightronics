@@ -346,8 +346,8 @@ function renderDispatchItemsTable() {
                     <div class="input-with-icon" style="width: 100px;">
                         <span class="input-icon">${currencySymbol}</span>
                         <input type="number" class="dispatch-price-input" 
-                               value="${item.dispatch_price.toFixed(4)}" 
-                               step="0.0001"
+                               value="${item.dispatch_price.toFixed(6)}" 
+                               step="0.000001"
                                onchange="updateDispatchItemPrice(${index}, this.value)"
                                style="padding-left: 24px;">
                     </div>
@@ -525,7 +525,7 @@ async function viewDispatch(id) {
                 <td>${item.category_name || '-'}</td>
                 <td>${item.ordered_quantity}</td>
                 <td>${item.dispatch_quantity}</td>
-                <td>${symbol}${(item.dispatch_price || 0).toFixed(4)}</td>
+                <td>${symbol}${(item.dispatch_price || 0).toFixed(6)}</td>
                 <td><strong>${symbol}${(item.total || 0).toFixed(2)}</strong></td>
             </tr>
         `).join('');

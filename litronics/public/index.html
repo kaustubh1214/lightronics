@@ -164,7 +164,13 @@
                 <div class="table-container">
                     <div class="table-header">
                         <h3>Products List</h3>
-                        <div class="table-actions">
+                        <div class="table-actions" style="display: flex; gap: 12px; align-items: center;">
+                            <select id="price-filter" class="filter-input" style="min-width: 150px; height: 42px;"
+                                onchange="applyProductFilters()">
+                                <option value="all">All Products</option>
+                                <option value="no-price">⚠️ No Price</option>
+                                <option value="with-price">✅ With Price</option>
+                            </select>
                             <input type="text" id="search-input" placeholder="Search products..." class="search-input">
                         </div>
                     </div>
@@ -488,7 +494,7 @@
                                         <label>Unit Price</label>
                                         <div class="input-with-icon">
                                             <span class="input-icon" id="purchase-currency-symbol">$</span>
-                                            <input type="number" id="purchase-unit-price" step="0.0001">
+                                            <input type="number" id="purchase-unit-price" step="0.000001">
                                         </div>
                                     </div>
                                 </div>
@@ -948,8 +954,13 @@
                                 <input type="text" id="part_code" name="part_code" required placeholder="e.g., P3365">
                             </div>
                             <div class="form-group">
-                                <label for="category_id">Category *</label>
-                                <select id="category_id" name="category_id" required>
+                                <label for="hsn_category_id">
+                                    Category *
+                                    <a href="#" id="add-new-category-link"
+                                        style="float: right; font-size: 0.8em; color: var(--primary-light); text-decoration: none;">+
+                                        Add New</a>
+                                </label>
+                                <select id="hsn_category_id" name="hsn_category_id" required>
                                     <option value="">Select Category</option>
                                 </select>
                             </div>
@@ -1007,7 +1018,7 @@
                                 <div class="input-with-icon">
                                     <span class="input-icon">$</span>
                                     <input type="number" id="form_unit_price_usd" name="form_unit_price_usd"
-                                        step="0.0001" value="0" min="0">
+                                        step="0.000001" value="0" min="0">
                                 </div>
                             </div>
                             <div class="form-group">
@@ -1015,7 +1026,7 @@
                                 <div class="input-with-icon">
                                     <span class="input-icon">¥</span>
                                     <input type="number" id="form_unit_price_rmb" name="form_unit_price_rmb"
-                                        step="0.0001" value="0" min="0">
+                                        step="0.000001" value="0" min="0">
                                 </div>
                             </div>
                             <div class="form-group">
@@ -1023,15 +1034,13 @@
                                 <div class="input-with-icon">
                                     <span class="input-icon">₹</span>
                                     <input type="number" id="form_unit_price_inr" name="form_unit_price_inr"
-                                        step="0.0001" value="0" min="0">
+                                        step="0.001" value="0" min="0">
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Hidden legacy fields removed as we now use direct form IDs -->
                     </div>
 
-                    <!-- Duties & Taxes Section -->
+                    <!-- HSN, Duties & Taxes Section (auto-filled from Category selection) -->
                     <div class="form-section">
                         <h3 class="section-title">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1039,134 +1048,122 @@
                                 <line x1="1" y1="10" x2="23" y2="10" />
                             </svg>
                             HSN, Duties & Taxes
+                            <small style="font-weight: 400; color: var(--text-muted); margin-left: 8px;">(auto-filled
+                                from Category)</small>
                         </h3>
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="hsn_code_id">
-                                    HSN Code *
-                                    <a href="#" id="manage-hsn-link"
-                                        style="float: right; font-size: 0.8em; color: var(--primary-light); text-decoration: none;">+
-                                        Add New</a>
-                                </label>
-                                <select id="hsn_code_id" name="hsn_code_id" required>
-                                    <option value="">Select HSN Code</option>
-                                </select>
+                                <label for="auto_hsn_code">HSN Code</label>
+                                <input type="text" id="auto_hsn_code" readonly placeholder="Auto-filled from Category"
+                                    class="readonly-input">
                             </div>
                             <div class="form-group">
-                                <label for="hsn_category_display">HSN Category</label>
-                                <input type="text" id="hsn_category_display" readonly placeholder="Auto-filled from HSN"
-                                    class="readonly-input">
+                                <label for="basic_custom_duty_percentage">Custom Duty / BCD (%)</label>
+                                <div class="input-with-icon">
+                                    <input type="number" id="basic_custom_duty_percentage"
+                                        name="basic_custom_duty_percentage" step="0.01" value="0" min="0" max="100"
+                                        readonly class="readonly-input">
+                                    <span class="input-icon right">%</span>
+                                </div>
+                                <small class="form-hint">Auto-filled from Category</small>
                             </div>
                         </div>
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="basic_custom_duty_percentage">Basic Custom Duty (%)</label>
+                                <label for="gst_percentage">GST (%)</label>
                                 <div class="input-with-icon">
-                                    <input type="number" id="basic_custom_duty_percentage"
-                                        name="basic_custom_duty_percentage" step="0.01" value="0" min="0" max="100">
+                                    <input type="number" id="gst_percentage" name="gst_percentage" step="0.01"
+                                        value="18" min="0" max="100" readonly class="readonly-input">
                                     <span class="input-icon right">%</span>
                                 </div>
-                                <small class="form-hint">Auto-filled from HSN</small>
+                                <small class="form-hint">Auto-filled from Category</small>
                             </div>
-
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="freight_percentage">Freight (%) - Ship/Air</label>
-                                    <div class="input-with-icon">
-                                        <input type="number" id="freight_percentage" name="freight_percentage"
-                                            step="0.01" value="4" min="0" max="100">
-                                        <span class="input-icon right">%</span>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="gst_percentage">GST (%)</label>
-                                    <div class="input-with-icon">
-                                        <input type="number" id="gst_percentage" name="gst_percentage" step="0.01"
-                                            value="18" min="0" max="100">
-                                        <span class="input-icon right">%</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Calculated Landed Price -->
-                        <div class="form-section landed-price-section">
-                            <h3 class="section-title">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-                                    <polyline points="16 7 22 7 22 13" />
-                                </svg>
-                                Calculated Landed Price
-                            </h3>
-
-                            <div id="landed-price-container">
-                                <!-- Dynamic content will be injected here via JS -->
-                                <div class="price-breakdown empty-state">
-                                    <p style="text-align:center; color: var(--text-muted);">Enter a price to see
-                                        calculation</p>
+                            <div class="form-group">
+                                <label for="freight_percentage">Freight (%) - Ship/Air</label>
+                                <div class="input-with-icon">
+                                    <input type="number" id="freight_percentage" name="freight_percentage" step="0.01"
+                                        value="4" min="0" max="100">
+                                    <span class="input-icon right">%</span>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
-                        <button type="submit" class="btn btn-primary">
+                    <!-- Calculated Landed Price -->
+                    <div class="form-section landed-price-section">
+                        <h3 class="section-title">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                                <polyline points="17 21 17 13 7 13 7 21" />
-                                <polyline points="7 3 7 8 15 8" />
+                                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                                <polyline points="16 7 22 7 22 13" />
                             </svg>
-                            Save Product
-                        </button>
+                            Calculated Landed Price
+                        </h3>
+
+                        <div id="landed-price-container">
+                            <!-- Dynamic content will be injected here via JS -->
+                            <div class="price-breakdown empty-state">
+                                <p style="text-align:center; color: var(--text-muted);">Enter a price to see
+                                    calculation</p>
+                            </div>
+                        </div>
                     </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                        </svg>
+                        Save Product
+                    </button>
+                </div>
             </form>
         </div>
     </div>
 
-    <!-- HSN Management Modal -->
-    <div class="modal-overlay" id="hsn-modal" style="z-index: 1100;">
+    <!-- Add New Category Modal (HSN Category Master) -->
+    <div class="modal-overlay" id="category-modal" style="z-index: 3000;">
         <div class="modal" style="max-width: 500px;">
             <div class="modal-header">
-                <h2 id="hsn-modal-title">Add New HSN Code</h2>
-                <button class="modal-close" id="close-hsn-modal">&times;</button>
+                <h2 id="category-modal-title">Add New Category</h2>
+                <button class="modal-close" id="close-category-modal">&times;</button>
             </div>
-            <form id="hsn-form" class="modal-body">
+            <form id="category-form" class="modal-body">
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="new_hsn_code">HSN Code *</label>
-                        <input type="text" id="new_hsn_code" name="hsn_code" required placeholder="e.g., 94059900">
+                        <label for="new_category_name">Category Name *</label>
+                        <input type="text" id="new_category_name" name="category_name" required
+                            placeholder="e.g., Alu E-Cap - 3k hrs">
                     </div>
 
                     <div class="form-group">
-                        <label for="new_hsn_description">Description</label>
-                        <input type="text" id="new_hsn_description" name="description" placeholder="e.g., LED Bulbs">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="new_hsn_category">HSN Category</label>
-                        <input type="text" id="new_hsn_category" name="hsn_category" placeholder="e.g., ZZZ">
+                        <label for="new_category_hsn_code">HSN Code *</label>
+                        <input type="text" id="new_category_hsn_code" name="hsn_code" required
+                            placeholder="e.g., 85322500">
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="new_bcd_percentage">BCD (%)</label>
-                            <input type="number" id="new_bcd_percentage" name="basic_custom_duty_percentage" step="0.01"
+                            <label for="new_category_duty">Custom Duty / BCD (%)</label>
+                            <input type="number" id="new_category_duty" name="custom_duty_percentage" step="0.01"
                                 value="0" min="0">
                         </div>
                         <div class="form-group">
-                            <label for="new_gst_percentage">GST (%)</label>
-                            <input type="number" id="new_gst_percentage" name="gst_percentage" step="0.01" value="18"
+                            <label for="new_category_gst">GST (%)</label>
+                            <input type="number" id="new_category_gst" name="gst_percentage" step="0.01" value="18"
                                 min="0">
                         </div>
                     </div>
                 </div>
 
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" id="cancel-hsn-btn">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save HSN</button>
+                    <button type="button" class="btn btn-secondary" id="cancel-category-btn">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Category</button>
                 </div>
             </form>
         </div>

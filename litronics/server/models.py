@@ -51,6 +51,33 @@ class CurrencyRate(Base):
 
 
 # =============================================================================
+# HSN Category Master Model (merged Category + HSN)
+# =============================================================================
+
+class HsnCategoryMaster(Base):
+    """Unified master for HSN codes and categories.
+    
+    Fields:
+        - hsn_code:  The HSN (Harmonized System of Nomenclature) code
+        - category_name:  Human-readable category / description
+        - custom_duty_percentage:  Basic Custom Duty %
+        - gst_percentage:  GST %
+    """
+    __tablename__ = "hsn_category_master"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hsn_code = Column(String(20), nullable=False)
+    category_name = Column(String(150), unique=True, nullable=False)
+    custom_duty_percentage = Column(Float, default=0)
+    gst_percentage = Column(Float, default=18)
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    products = relationship("Product", back_populates="hsn_category_master")
+
+
+
+# =============================================================================
 # Category Model
 # =============================================================================
 
@@ -133,6 +160,9 @@ class Product(Base):
     packaging_quantity = Column(Integer, default=1)
     hsn_code_id = Column(Integer, ForeignKey("hsn_codes.id"))
 
+    # NEW: Reference to unified HSN Category Master
+    hsn_category_id = Column(Integer, ForeignKey("hsn_category_master.id"))
+
     # Pricing
     unit_price_usd = Column(Float, default=0)
     unit_price_rmb = Column(Float, default=0)
@@ -156,6 +186,7 @@ class Product(Base):
     # Relationships
     category = relationship("Category", back_populates="products")
     hsn = relationship("HsnCode", back_populates="products")
+    hsn_category_master = relationship("HsnCategoryMaster", back_populates="products")
     suppliers = relationship(
         "Supplier",
         secondary=product_suppliers,

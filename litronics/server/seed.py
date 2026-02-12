@@ -4,7 +4,7 @@ Default data initialization
 """
 
 from database import SessionLocal
-from models import CurrencyRate, Category, HsnCode, Supplier
+from models import CurrencyRate, Category, HsnCode, Supplier, HsnCategoryMaster
 
 
 def seed_data():
@@ -32,7 +32,7 @@ def seed_data():
                 ),
             ])
 
-        # Seed Categories
+        # Seed Categories (legacy, kept for backward compat)
         if db.query(Category).count() == 0:
             db.add_all([
                 Category(
@@ -62,7 +62,7 @@ def seed_data():
                 ),
             ])
 
-        # Seed HSN Codes
+        # Seed HSN Codes (legacy, kept for backward compat)
         if db.query(HsnCode).count() == 0:
             db.add_all([
                 HsnCode(
@@ -99,6 +99,61 @@ def seed_data():
                     hsn_category="ZZZ",
                     basic_custom_duty_percentage=10,
                     gst_percentage=18
+                ),
+            ])
+
+        # =====================================================================
+        # Seed HSN Category Master (NEW unified master)
+        # =====================================================================
+        if db.query(HsnCategoryMaster).count() == 0:
+            db.add_all([
+                HsnCategoryMaster(
+                    hsn_code="85322500",
+                    category_name="Alu E-Cap - 3k hrs",
+                    custom_duty_percentage=7.5,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="85322500",
+                    category_name="Alu E-Cap - 6-8k hrs",
+                    custom_duty_percentage=7.5,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="85322400",
+                    category_name="Ceramic Capacitors",
+                    custom_duty_percentage=7.5,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="85322500",
+                    category_name="Capacitors",
+                    custom_duty_percentage=7.5,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="85334000",
+                    category_name="Resistors",
+                    custom_duty_percentage=7.5,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="85423100",
+                    category_name="ICs",
+                    custom_duty_percentage=0,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="85411000",
+                    category_name="Diodes",
+                    custom_duty_percentage=0,
+                    gst_percentage=18,
+                ),
+                HsnCategoryMaster(
+                    hsn_code="94059900",
+                    category_name="LED Bulbs and Lighting",
+                    custom_duty_percentage=10,
+                    gst_percentage=18,
                 ),
             ])
 

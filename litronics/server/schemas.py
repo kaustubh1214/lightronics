@@ -19,6 +19,7 @@ class ProductCreate(BaseModel):
     pieces_per_unit: Optional[int] = 1
     packaging_quantity: Optional[int] = 1
     hsn_code_id: Optional[int] = None
+    hsn_category_id: Optional[int] = None  # NEW: unified HSN Category Master FK
     unit_price_usd: Optional[float] = 0
     unit_price_rmb: Optional[float] = 0
     unit_price_inr: Optional[float] = 0
@@ -37,6 +38,7 @@ class ProductUpdate(BaseModel):
     pieces_per_unit: Optional[int] = None
     packaging_quantity: Optional[int] = None
     hsn_code_id: Optional[int] = None
+    hsn_category_id: Optional[int] = None  # NEW: unified HSN Category Master FK
     unit_price_usd: Optional[float] = None
     unit_price_rmb: Optional[float] = None
     unit_price_inr: Optional[float] = None

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder, PurchasePayment, DispatchMaster, DispatchItem
+from models import Product, Category, Supplier, HsnCode, CurrencyRate, PurchaseOrder, PurchasePayment, DispatchMaster, DispatchItem, HsnCategoryMaster
 from schemas import ProductCreate, ProductUpdate, PurchaseOrderCreate, PurchaseOrderUpdate, PurchasePaymentCreate, PurchaseBatchCreate, DispatchCreate, DispatchUpdate
 from purchase_ids import generate_purchase_id as _generate_purchase_id, generate_order_number as _generate_order_number
 
@@ -33,15 +33,28 @@ def get_products(db: Session = Depends(get_db)):
     result = []
 
     for p in products:
+        # Get HSN Category Master data if linked
+        hcm = None
+        if p.hsn_category_master:
+            hcm = {
+                "id": p.hsn_category_master.id,
+                "hsn_code": p.hsn_category_master.hsn_code,
+                "category_name": p.hsn_category_master.category_name,
+                "custom_duty_percentage": p.hsn_category_master.custom_duty_percentage,
+                "gst_percentage": p.hsn_category_master.gst_percentage,
+            }
+
         result.append({
             "id": p.id,
             "part_code": p.part_code,
             "description": p.description,
-            "category_name": p.category.category_name if p.category else None,
+            "category_name": (p.hsn_category_master.category_name if p.hsn_category_master else (p.category.category_name if p.category else None)),
             "category_id": p.category_id,
+            "hsn_category_id": p.hsn_category_id,
+            "hsn_category_master": hcm,
             "pieces_per_unit": p.pieces_per_unit,
             "packaging_quantity": p.packaging_quantity,
-            "hsn_code": p.hsn.hsn_code if p.hsn else None,
+            "hsn_code": (p.hsn_category_master.hsn_code if p.hsn_category_master else (p.hsn.hsn_code if p.hsn else None)),
             "hsn_code_id": p.hsn_code_id,
             "unit_price_usd": p.unit_price_usd,
             "unit_price_rmb": p.unit_price_rmb,
@@ -101,6 +114,7 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
         pieces_per_unit=product.pieces_per_unit,
         packaging_quantity=product.packaging_quantity,
         hsn_code_id=product.hsn_code_id,
+        hsn_category_id=product.hsn_category_id,
         unit_price_usd=product.unit_price_usd,
         unit_price_rmb=product.unit_price_rmb,
         unit_price_inr=product.unit_price_inr,
@@ -184,6 +198,8 @@ def update_product(product_id: int, product: ProductUpdate, db: Session = Depend
         db_product.freight_percentage = product.freight_percentage
     if product.gst_percentage is not None:
         db_product.gst_percentage = product.gst_percentage
+    if product.hsn_category_id is not None:
+        db_product.hsn_category_id = product.hsn_category_id
     
     # Update suppliers if provided
     if product.supplier_ids is not None:
@@ -413,6 +429,86 @@ def create_hsn_code(hsn: dict, db: Session = Depends(get_db)):
     db.refresh(new_hsn)
 
     return {"success": True, "id": new_hsn.id, "message": "HSN Code created successfully"}
+
+
+# =============================================================================
+# HSN Category Master Routes (NEW unified master)
+# =============================================================================
+
+@router.get("/hsn-category-master")
+def get_hsn_category_master(db: Session = Depends(get_db)):
+    """Get all HSN Category Master entries."""
+    entries = db.query(HsnCategoryMaster).all()
+
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": e.id,
+                "hsn_code": e.hsn_code,
+                "category_name": e.category_name,
+                "custom_duty_percentage": e.custom_duty_percentage,
+                "gst_percentage": e.gst_percentage,
+            }
+            for e in entries
+        ]
+    }
+
+
+@router.get("/hsn-category-master/{entry_id}")
+def get_hsn_category_master_by_id(entry_id: int, db: Session = Depends(get_db)):
+    """Get HSN Category Master entry by ID."""
+    entry = db.query(HsnCategoryMaster).filter(HsnCategoryMaster.id == entry_id).first()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="HSN Category Master entry not found")
+
+    return {
+        "success": True,
+        "data": {
+            "id": entry.id,
+            "hsn_code": entry.hsn_code,
+            "category_name": entry.category_name,
+            "custom_duty_percentage": entry.custom_duty_percentage,
+            "gst_percentage": entry.gst_percentage,
+        }
+    }
+
+
+@router.post("/hsn-category-master")
+def create_hsn_category_master(data: dict, db: Session = Depends(get_db)):
+    """Create a new HSN Category Master entry."""
+    # Check if category_name already exists
+    existing = db.query(HsnCategoryMaster).filter(
+        HsnCategoryMaster.category_name == data.get("category_name")
+    ).first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="Category name already exists in HSN Category Master")
+
+    new_entry = HsnCategoryMaster(
+        hsn_code=data.get("hsn_code", ""),
+        category_name=data.get("category_name"),
+        custom_duty_percentage=float(data.get("custom_duty_percentage", 0)),
+        gst_percentage=float(data.get("gst_percentage", 18)),
+    )
+
+    db.add(new_entry)
+    db.commit()
+    db.refresh(new_entry)
+
+    return {
+        "success": True,
+        "id": new_entry.id,
+        "data": {
+            "id": new_entry.id,
+            "hsn_code": new_entry.hsn_code,
+            "category_name": new_entry.category_name,
+            "custom_duty_percentage": new_entry.custom_duty_percentage,
+            "gst_percentage": new_entry.gst_percentage,
+        },
+        "message": "HSN Category Master entry created successfully"
+    }
 
 
 # =============================================================================

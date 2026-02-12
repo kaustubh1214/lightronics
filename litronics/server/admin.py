@@ -14,6 +14,7 @@ from models import (
     CKDCosting,
     PurchaseOrder,
     PurchasePayment,
+    HsnCategoryMaster,
 )
 
 
@@ -283,3 +284,31 @@ class PurchasePaymentAdmin(ModelView, model=PurchasePayment):
         PurchasePayment.remarks,
     ]
 
+
+# =============================================================================
+# HSN Category Master Admin View
+# =============================================================================
+
+class HsnCategoryMasterAdmin(ModelView, model=HsnCategoryMaster):
+    """Admin view for HsnCategoryMaster model."""
+    name = "HSN Category Master"
+    name_plural = "HSN Category Master"
+    icon = "fa-solid fa-tags"
+
+    column_list = [
+        HsnCategoryMaster.id,
+        HsnCategoryMaster.hsn_code,
+        HsnCategoryMaster.category_name,
+        HsnCategoryMaster.custom_duty_percentage,
+        HsnCategoryMaster.gst_percentage,
+    ]
+    column_searchable_list = [
+        HsnCategoryMaster.hsn_code,
+        HsnCategoryMaster.category_name,
+    ]
+    form_columns = [
+        HsnCategoryMaster.hsn_code,
+        HsnCategoryMaster.category_name,
+        HsnCategoryMaster.custom_duty_percentage,
+        HsnCategoryMaster.gst_percentage,
+    ]

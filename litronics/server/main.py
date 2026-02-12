@@ -19,6 +19,7 @@ from models import (
     Supplier,
     Product,
     CKDCosting,
+    HsnCategoryMaster,
 )
 from routes import router
 from admin import (
@@ -30,6 +31,7 @@ from admin import (
     CKDCostingAdmin,
     PurchaseOrderAdmin,
     PurchasePaymentAdmin,
+    HsnCategoryMasterAdmin,
 )
 from seed import seed_data
 from purchase_migrations import ensure_purchase_schema
@@ -76,6 +78,7 @@ admin.add_view(CurrencyRateAdmin)
 admin.add_view(CKDCostingAdmin)
 admin.add_view(PurchaseOrderAdmin)
 admin.add_view(PurchasePaymentAdmin)
+admin.add_view(HsnCategoryMasterAdmin)
 
 
 # =============================================================================

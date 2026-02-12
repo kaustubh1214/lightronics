@@ -558,7 +558,7 @@ async function loadLast3Prices(productId) {
 
                 div.innerHTML = `
                     <span style="color:var(--text-muted); margin-right:5px;">${h.order_date}</span> 
-                    <strong>${h.currency} ${parseFloat(h.unit_price).toFixed(2)}</strong>
+                    <strong>${h.currency} ${parseFloat(h.unit_price).toFixed(h.currency === 'INR' ? 3 : 6)}</strong>
                     <span style="color:var(--text-muted); font-size: 0.9em; margin-left:5px;">(${h.supplier_name})</span>
                 `;
                 list.appendChild(div);
