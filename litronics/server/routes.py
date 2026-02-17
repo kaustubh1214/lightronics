@@ -842,15 +842,15 @@ def create_purchase_order_batch(batch: PurchaseBatchCreate, db: Session = Depend
                 sup = db.query(Supplier).filter(Supplier.id == batch.supplier_id).first()
                 if sup: supplier_name = sup.supplier_name
 
-            # Calculate totals
+            # Calculate totals (same logic for all currencies)
             unit_price = item.unit_price or 0
             quantity = item.quantity or 1
-            rate_to_inr = _get_currency_rate_to_inr(db, item.price_currency or "USD")
-            subtotal = (unit_price * rate_to_inr) * quantity
+            order_currency = batch.order_currency or item.price_currency or "INR"
+            
+            subtotal = unit_price * quantity
             other_charges = item.other_charges or 0
             total = subtotal + other_charges
             
-            # Calculate GST
             gst_amount = 0
             if item.gst_applicable:
                 gst_percentage = item.gst_percentage or 18
@@ -873,7 +873,7 @@ def create_purchase_order_batch(batch: PurchaseBatchCreate, db: Session = Depend
                 supplier_id=batch.supplier_id, 
                 supplier_name=supplier_name,
                 quantity=quantity,
-                price_currency=item.price_currency,
+                price_currency=order_currency,
                 price_usd=price_usd,
                 price_inr=price_inr,
                 price_rmb=price_rmb,

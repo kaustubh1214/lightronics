@@ -104,6 +104,7 @@ class PurchaseBatchCreate(BaseModel):
     delivery_date: Optional[str] = None
     delivery_type: Optional[str] = "sea"
     global_remarks: Optional[str] = None
+    order_currency: Optional[str] = "INR"  # Order-level currency (INR, USD, RMB)
     items: List[PurchaseItemCreate]
 
 

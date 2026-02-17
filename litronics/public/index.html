@@ -413,25 +413,181 @@
                                 </div>
                             </div>
 
-                            <!-- ITEMS LIST -->
-                            <div class="form-section">
-                                <h3 class="section-title">Items in Order</h3>
+                            <!-- ORDER CURRENCY SELECTION -->
+                            <div class="form-section" id="order-currency-section"
+                                style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.08)); padding: 18px 20px; border-radius: 10px; border: 1px solid rgba(99, 102, 241, 0.18);">
+                                <h3 class="section-title"
+                                    style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M12 6v12M8 10h8M8 14h6" />
+                                    </svg>
+                                    Order Currency
+                                </h3>
+                                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                                    <label class="currency-radio-card" id="currency-card-INR">
+                                        <input type="radio" name="order-currency" value="INR" checked>
+                                        <span class="currency-radio-label">₹ INR <small>Indian Rupee</small></span>
+                                    </label>
+                                    <label class="currency-radio-card" id="currency-card-USD">
+                                        <input type="radio" name="order-currency" value="USD">
+                                        <span class="currency-radio-label">$ USD <small>US Dollar</small></span>
+                                    </label>
+                                    <label class="currency-radio-card" id="currency-card-RMB">
+                                        <input type="radio" name="order-currency" value="RMB">
+                                        <span class="currency-radio-label">¥ RMB <small>Chinese Yuan</small></span>
+                                    </label>
+                                    <span id="order-currency-info" class="currency-info-badge">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <path d="M12 16v-4M12 8h.01" />
+                                        </svg>
+                                        INR selected — Duties & GST will apply
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- ORDER SUMMARY (totals at the top) -->
+                            <div class="form-section" id="order-summary-section"
+                                style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(6, 182, 212, 0.06)); padding: 18px 20px; border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.15);">
+                                <h3 class="section-title"
+                                    style="margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                                        <line x1="1" y1="10" x2="23" y2="10" />
+                                    </svg>
+                                    Order Summary
+                                </h3>
+                                <div class="order-summary-grid">
+                                    <div class="summary-item">
+                                        <span class="summary-label">Items</span>
+                                        <span class="summary-value" id="summary-item-count">0</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="summary-label">Subtotal</span>
+                                        <span class="summary-value" id="summary-subtotal">₹0.00</span>
+                                    </div>
+                                    <div class="summary-item" id="summary-other-charges-box">
+                                        <span class="summary-label">Other Charges</span>
+                                        <span class="summary-value" id="summary-other-charges">₹0.00</span>
+                                    </div>
+                                    <div class="summary-item" id="summary-gst-box">
+                                        <span class="summary-label">GST (<span id="summary-gst-pct">18</span>%)</span>
+                                        <span class="summary-value" id="summary-gst-amount">₹0.00</span>
+                                    </div>
+                                    <div class="summary-item summary-total">
+                                        <span class="summary-label">Final Total</span>
+                                        <span class="summary-value" id="summary-final-total">₹0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- PRODUCT SELECTION SECTION -->
+                            <div class="form-section" id="product-selection-section">
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                    <h3 class="section-title" style="margin-bottom: 0;">Select Products</h3>
+                                    <button type="button" class="btn btn-success" id="done-product-selection-btn"
+                                        style="display: none;" onclick="doneProductSelection()">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2.5">
+                                            <path d="M20 6L9 17l-5-5" />
+                                        </svg>
+                                        Done
+                                    </button>
+                                </div>
+
+                                <!-- ADD ITEM FORM -->
+                                <div id="add-item-form-section"
+                                    style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; margin-bottom: 16px;">
+                                    <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; color: var(--text-secondary);">
+                                        Add / Edit Item</h4>
+
+                                    <div class="form-row">
+                                        <div class="form-group full-width">
+                                            <label for="purchase-product-id">Select Product</label>
+                                            <select id="purchase-product-id">
+                                                <option value="">Select a product...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <!-- Last 3 Prices Display -->
+                                    <div id="last-prices-display"
+                                        style="display: none; margin-bottom: 15px; font-size: 0.9em;">
+                                        <strong style="color: var(--text-muted);">Last 3 Purchase Prices:</strong>
+                                        <div id="last-prices-list"
+                                            style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 5px;"></div>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Part Code</label>
+                                            <input type="text" id="purchase-part-code" readonly class="readonly-input">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Description</label>
+                                            <input type="text" id="purchase-item-description" readonly
+                                                class="readonly-input">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>HSN</label>
+                                            <input type="text" id="purchase-hsn-code" readonly class="readonly-input">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="purchase-quantity">Qty</label>
+                                            <input type="number" id="purchase-quantity" min="1" value="1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Unit Price (<span id="item-currency-label">INR</span>)</label>
+                                            <div class="input-with-icon">
+                                                <span class="input-icon" id="purchase-currency-symbol">₹</span>
+                                                <input type="number" id="purchase-unit-price" step="0.000001">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <button type="button" class="btn btn-primary" id="add-item-to-batch-btn"
+                                                style="margin-top: 24px;">
+                                                + Add Item
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Hidden fields -->
+                                    <input type="hidden" id="purchase-price-currency">
+                                    <input type="hidden" id="purchase-price-usd">
+                                    <input type="hidden" id="purchase-price-rmb">
+                                    <input type="hidden" id="purchase-price-inr">
+                                    <input type="hidden" id="purchase-category-name">
+                                    <input type="hidden" id="purchase-other-charges" value="0">
+                                    <input type="hidden" id="purchase-gst-applicable" value="true">
+                                    <input type="hidden" id="purchase-gst-percentage" value="18">
+                                </div>
+
+                                <!-- ITEMS TABLE -->
                                 <div class="table-wrapper"
-                                    style="max-height: 300px; overflow-y: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 8px;">
+                                    style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
                                     <table id="batch-items-table">
                                         <thead>
                                             <tr>
+                                                <th>#</th>
                                                 <th>Part Code</th>
                                                 <th>Description</th>
                                                 <th>Qty</th>
-                                                <th>Price</th>
-                                                <th>Total (INR)</th>
-                                                <th>Actions</th>
+                                                <th>Unit Price</th>
+                                                <th>Total</th>
+                                                <th>Action</th>
                                             </tr>
                                         </thead>
                                         <tbody id="batch-items-tbody">
                                             <tr>
-                                                <td colspan="6" style="text-align:center; color: var(--text-muted);">No
+                                                <td colspan="7" style="text-align:center; color: var(--text-muted);">No
                                                     items added yet.</td>
                                             </tr>
                                         </tbody>
@@ -439,90 +595,48 @@
                                 </div>
                             </div>
 
-                            <!-- ADD ITEM FORM -->
-                            <div class="form-section"
-                                style="background: var(--bg-secondary); padding: 15px; border-radius: 8px;">
-                                <h3 class="section-title">Add Item to Order</h3>
-
-                                <div class="form-row">
-                                    <div class="form-group full-width">
-                                        <label for="purchase-product-id">Select Product</label>
-                                        <select id="purchase-product-id">
-                                            <option value="">Select a product...</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <!-- Last 3 Prices Display -->
-                                <div id="last-prices-display"
-                                    style="display: none; margin-bottom: 15px; font-size: 0.9em;">
-                                    <strong style="color: var(--text-muted);">Last 3 Purchase Prices:</strong>
-                                    <div id="last-prices-list"
-                                        style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 5px;"></div>
-                                </div>
-
+                            <!-- OTHER CHARGES SECTION (INR only — hidden initially) -->
+                            <div class="form-section" id="other-charges-section"
+                                style="display: none; background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(251, 191, 36, 0.06)); padding: 18px 20px; border-radius: 10px; border: 1px solid rgba(245, 158, 11, 0.15);">
+                                <h3 class="section-title"
+                                    style="margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                                    </svg>
+                                    Other Charges & Taxes
+                                </h3>
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label>Part Code</label>
-                                        <input type="text" id="purchase-part-code" readonly class="readonly-input">
+                                        <label for="purchase-order-other-charges">Other Charges (<span
+                                                id="other-charges-currency-symbol">₹</span>)</label>
+                                        <input type="number" id="purchase-order-other-charges" value="0" step="0.01"
+                                            min="0">
                                     </div>
-                                    <div class="form-group">
-                                        <label>Description</label>
-                                        <input type="text" id="purchase-item-description" readonly
-                                            class="readonly-input">
-                                    </div>
-                                    <div class="form-group">
-                                        <label>HSN</label>
-                                        <input type="text" id="purchase-hsn-code" readonly class="readonly-input">
-                                    </div>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="purchase-quantity">Qty</label>
-                                        <input type="number" id="purchase-quantity" min="1" value="1">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="purchase-price-currency">Currency</label>
-                                        <select id="purchase-price-currency">
-                                            <option value="USD">USD</option>
-                                            <option value="RMB">RMB</option>
-                                            <option value="INR">INR</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Unit Price</label>
-                                        <div class="input-with-icon">
-                                            <span class="input-icon" id="purchase-currency-symbol">$</span>
-                                            <input type="number" id="purchase-unit-price" step="0.000001">
+                                    <div id="gst-section" style="display: flex; gap: 16px; align-items: end;">
+                                        <div class="form-group">
+                                            <label style="display: flex; align-items: center; gap: 8px;">
+                                                <input type="checkbox" id="purchase-order-gst-applicable" checked
+                                                    style="width: auto;">
+                                                GST Applicable
+                                            </label>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="purchase-order-gst-percentage">GST %</label>
+                                            <input type="number" id="purchase-order-gst-percentage" value="18"
+                                                step="0.5" min="0" max="100">
                                         </div>
                                     </div>
                                 </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label>Other Charges (INR)</label>
-                                        <input type="number" id="purchase-other-charges" value="0">
-                                    </div>
-                                    <div class="form-group" style="align-self: center;">
-                                        <input type="checkbox" id="purchase-gst-applicable" checked>
-                                        <label for="purchase-gst-applicable" style="display:inline;">GST Applicable
-                                            (18%)</label>
-                                        <input type="hidden" id="purchase-gst-percentage" value="18">
-                                    </div>
-                                    <div class="form-group">
-                                        <button type="button" class="btn btn-primary" id="add-item-to-batch-btn"
-                                            style="margin-top: 24px;">
-                                            + Add Item
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <!-- Hidden ref prices and category -->
-                                <input type="hidden" id="purchase-price-usd">
-                                <input type="hidden" id="purchase-price-rmb">
-                                <input type="hidden" id="purchase-price-inr">
-                                <input type="hidden" id="purchase-category-name">
+                                <p style="margin: 8px 0 0; font-size: 0.82rem; color: var(--text-muted);">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" style="vertical-align: -2px;">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M12 16v-4M12 8h.01" />
+                                    </svg>
+                                    Other charges apply to all currencies. GST is applicable only for INR orders
+                                    (default 18%).
+                                </p>
                             </div>
 
                             <div class="form-group full-width">
@@ -534,8 +648,15 @@
                         <div class="modal-footer" style="margin-top: 20px;">
                             <button type="button" class="btn btn-secondary"
                                 onclick="closePurchaseModal()">Cancel</button>
-                            <button type="button" class="btn btn-primary" id="submit-batch-order-btn">Save Order
-                                Batch</button>
+                            <button type="button" class="btn btn-primary" id="submit-batch-order-btn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" style="margin-right: 6px;">
+                                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                    <polyline points="17 21 17 13 7 13 7 21" />
+                                    <polyline points="7 3 7 8 15 8" />
+                                </svg>
+                                Save Order
+                            </button>
                         </div>
                     </div>
                 </div>

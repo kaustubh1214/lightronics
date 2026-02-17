@@ -14,7 +14,9 @@ let currencyRatesForPurchase = { USD: 83.50, RMB: 11.50, INR: 1 };
 
 // Batch Order State
 let currentBatchItems = [];
-let activeTab = 'orders'; // 'orders' or 'items'
+let activeTab = 'orders';
+let selectedOrderCurrency = 'INR'; // Order-level currency
+let productSelectionDone = false; // Track if Done was clicked
 
 // Choices.js instances
 let productChoices = null;
@@ -35,13 +37,14 @@ function initializePurchaseModule() {
         loadSuppliersForPurchase();
         loadCurrencyRatesForPurchase();
 
-        // Initial Tab State
         switchPurchaseTab('orders');
-        loadPurchaseOrders(); // Load data after setting tab
+        loadPurchaseOrders();
 
         setupPurchaseEventListeners();
         setupPaymentFormListener();
         setupPaymentFilterListeners();
+        setupCurrencySelection();
+        setupOtherChargesListeners();
 
         console.log('Purchase Module Initialized Successfully');
     } catch (e) {
@@ -469,69 +472,154 @@ window.markOrderReadyToDispatch = async function (purchaseId) {
 // =============================================================================
 
 function setupPurchaseEventListeners() {
-    // Product Select - Fetch Details & Last Prices
     const productSelect = document.getElementById('purchase-product-id');
     if (productSelect) {
         productSelect.addEventListener('change', async (e) => {
             const productId = parseInt(e.target.value);
             if (!productId) return;
-
             const product = productsForPurchase.find(p => p.id === productId);
             if (product) {
                 safeSetValue('purchase-part-code', product.part_code || '');
                 safeSetValue('purchase-item-description', product.description || '');
                 safeSetValue('purchase-hsn-code', product.hsn_code || '');
                 safeSetValue('purchase-category-name', product.category_name || '');
-
                 safeSetValue('purchase-price-usd', product.unit_price_usd || 0);
                 safeSetValue('purchase-price-rmb', product.unit_price_rmb || 0);
                 safeSetValue('purchase-price-inr', product.unit_price_inr || 0);
-
-                const currSel = document.getElementById('purchase-price-currency');
-                if (currSel) {
-                    currSel.value = product.primary_currency || 'USD';
-                    updateUnitDisplay();
-                }
-
+                safeSetValue('purchase-price-currency', selectedOrderCurrency);
+                updateUnitDisplay();
                 loadLast3Prices(productId);
             }
         });
     }
 
-    // Currency Change
-    const currSel = document.getElementById('purchase-price-currency');
-    if (currSel) currSel.addEventListener('change', updateUnitDisplay);
-
-    // Search
     const searchInput = document.getElementById('purchase-search-input');
-    if (searchInput) {
-        searchInput.addEventListener('input', () => renderCurrentView());
-    }
+    if (searchInput) searchInput.addEventListener('input', () => renderCurrentView());
 
-    // Filter Inputs
     ['filter-purchase-id', 'filter-part-code', 'filter-supplier', 'filter-status', 'filter-delivery-date'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', renderCurrentView);
     });
 
-    // Buttons
-    document.getElementById('add-item-to-batch-btn').addEventListener('click', addItemToBatch);
-    document.getElementById('submit-batch-order-btn').addEventListener('click', submitBatchOrder);
+    document.getElementById('add-item-to-batch-btn')?.addEventListener('click', addItemToBatch);
+    document.getElementById('submit-batch-order-btn')?.addEventListener('click', submitBatchOrder);
+}
+
+function setupCurrencySelection() {
+    document.querySelectorAll('input[name="order-currency"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            selectedOrderCurrency = e.target.value;
+            safeSetValue('purchase-price-currency', selectedOrderCurrency);
+            updateCurrencyUI();
+            updateUnitDisplay();
+            updateOrderSummary();
+        });
+    });
+}
+
+function setupOtherChargesListeners() {
+    ['purchase-order-other-charges', 'purchase-order-gst-percentage'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', updateOrderSummary);
+    });
+    const gstCheck = document.getElementById('purchase-order-gst-applicable');
+    if (gstCheck) gstCheck.addEventListener('change', updateOrderSummary);
+}
+
+function updateCurrencyUI() {
+    const symbols = { USD: '$', RMB: '¥', INR: '₹' };
+    const sym = symbols[selectedOrderCurrency] || '₹';
+    const symEl = document.getElementById('purchase-currency-symbol');
+    if (symEl) symEl.textContent = sym;
+    const lbl = document.getElementById('item-currency-label');
+    if (lbl) lbl.textContent = selectedOrderCurrency;
+
+    const infoEl = document.getElementById('order-currency-info');
+    if (infoEl) {
+        if (selectedOrderCurrency === 'INR') {
+            infoEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> INR selected — Duties & GST will apply`;
+        } else {
+            infoEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> ${selectedOrderCurrency} selected — No duties or additional charges`;
+        }
+    }
+
+    // Show/hide other charges section based on Done state
+    const otherSection = document.getElementById('other-charges-section');
+    if (otherSection) {
+        otherSection.style.display = productSelectionDone ? 'block' : 'none';
+    }
+    // Update Other Charges currency symbol
+    const ocSymEl = document.getElementById('other-charges-currency-symbol');
+    if (ocSymEl) ocSymEl.textContent = sym;
+    // GST section only for INR
+    const gstSection = document.getElementById('gst-section');
+    if (gstSection) gstSection.style.display = selectedOrderCurrency === 'INR' ? 'flex' : 'none';
+    const summaryOC = document.getElementById('summary-other-charges-box');
+    const summaryGST = document.getElementById('summary-gst-box');
+    if (summaryOC) summaryOC.style.display = '';
+    if (summaryGST) summaryGST.style.display = selectedOrderCurrency === 'INR' ? '' : 'none';
 }
 
 function updateUnitDisplay() {
-    const currency = document.getElementById('purchase-price-currency').value;
+    const currency = selectedOrderCurrency;
     const symEl = document.getElementById('purchase-currency-symbol');
     const unitIn = document.getElementById('purchase-unit-price');
-
     const symbols = { USD: '$', RMB: '¥', INR: '₹' };
-    if (symEl) symEl.textContent = symbols[currency] || '$';
-
+    if (symEl) symEl.textContent = symbols[currency] || '₹';
     if (unitIn) {
-        if (currency === 'USD') unitIn.value = document.getElementById('purchase-price-usd').value;
-        else if (currency === 'RMB') unitIn.value = document.getElementById('purchase-price-rmb').value;
-        else unitIn.value = document.getElementById('purchase-price-inr').value;
+        if (currency === 'USD') unitIn.value = document.getElementById('purchase-price-usd')?.value || '';
+        else if (currency === 'RMB') unitIn.value = document.getElementById('purchase-price-rmb')?.value || '';
+        else unitIn.value = document.getElementById('purchase-price-inr')?.value || '';
     }
+}
+
+function updateOrderSummary() {
+    const symbols = { USD: '$', RMB: '¥', INR: '₹' };
+    const sym = symbols[selectedOrderCurrency] || '₹';
+    const itemCount = currentBatchItems.length;
+    let subtotal = 0;
+    currentBatchItems.forEach(item => { subtotal += item.unit_price * item.quantity; });
+
+    let otherCharges = 0, gstAmount = 0, gstPct = 18;
+    otherCharges = parseFloat(document.getElementById('purchase-order-other-charges')?.value || 0);
+    // GST only for INR
+    if (selectedOrderCurrency === 'INR') {
+        const gstApplicable = document.getElementById('purchase-order-gst-applicable')?.checked !== false;
+        gstPct = parseFloat(document.getElementById('purchase-order-gst-percentage')?.value || 18);
+        if (gstApplicable) gstAmount = (subtotal + otherCharges) * (gstPct / 100);
+    }
+    const finalTotal = subtotal + otherCharges + gstAmount;
+
+    const dec = selectedOrderCurrency === 'INR' ? 2 : 6;
+    document.getElementById('summary-item-count').textContent = itemCount;
+    document.getElementById('summary-subtotal').textContent = `${sym}${subtotal.toFixed(dec)}`;
+    document.getElementById('summary-other-charges').textContent = `${sym}${otherCharges.toFixed(2)}`;
+    document.getElementById('summary-gst-amount').textContent = `${sym}${gstAmount.toFixed(2)}`;
+    document.getElementById('summary-gst-pct').textContent = gstPct;
+    document.getElementById('summary-final-total').textContent = `${sym}${finalTotal.toFixed(dec)}`;
+
+    // Show Done button if items exist
+    const doneBtn = document.getElementById('done-product-selection-btn');
+    if (doneBtn) doneBtn.style.display = currentBatchItems.length > 0 ? 'inline-flex' : 'none';
+}
+
+window.doneProductSelection = function () {
+    productSelectionDone = true;
+    const section = document.getElementById('product-selection-section');
+    if (section) section.style.display = 'none';
+    // Show Other Charges for all currencies
+    const otherSection = document.getElementById('other-charges-section');
+    if (otherSection) { otherSection.style.display = 'block'; otherSection.classList.add('visible'); }
+    showPurchaseToast(`${currentBatchItems.length} product(s) selected. Configure charges and save.`, 'success');
+    updateOrderSummary();
+}
+
+window.reopenProductSelection = function () {
+    productSelectionDone = false;
+    const section = document.getElementById('product-selection-section');
+    if (section) section.style.display = 'block';
+    const otherSection = document.getElementById('other-charges-section');
+    if (otherSection) { otherSection.style.display = 'none'; otherSection.classList.remove('visible'); }
 }
 
 async function loadLast3Prices(productId) {
@@ -571,20 +659,17 @@ async function loadLast3Prices(productId) {
 }
 
 function addItemToBatch() {
-    console.log('Adding/Updating item in batch...');
     const pid = document.getElementById('purchase-product-id').value;
     const qty = document.getElementById('purchase-quantity').value;
     const price = document.getElementById('purchase-unit-price').value;
-    const currency = document.getElementById('purchase-price-currency').value;
+    const currency = selectedOrderCurrency;
 
     if (!qty || !price) {
-        showPurchaseToast('Please select product (or enter details), quantity and price.', 'error');
+        showPurchaseToast('Please select product, quantity and price.', 'error');
         return;
     }
 
-    const rate = currencyRatesForPurchase[currency] || 1;
-    const otherCharges = parseFloat(document.getElementById('purchase-other-charges').value || 0);
-    const totalINR = (parseFloat(price) * rate * parseInt(qty)) + otherCharges;
+    const totalLine = parseFloat(price) * parseInt(qty);
 
     const newItem = {
         tempId: Date.now(),
@@ -599,25 +684,15 @@ function addItemToBatch() {
         price_rmb: parseFloat(document.getElementById('purchase-price-rmb').value) || 0,
         price_inr: parseFloat(document.getElementById('purchase-price-inr').value) || 0,
         unit_price: parseFloat(price),
-        other_charges: otherCharges,
-        gst_applicable: document.getElementById('purchase-gst-applicable').checked,
-        gst_percentage: parseFloat(document.getElementById('purchase-gst-percentage').value) || 18,
-        total_estimated: totalINR
+        other_charges: 0,
+        gst_applicable: currency === 'INR',
+        gst_percentage: currency === 'INR' ? 18 : 0,
+        total_estimated: totalLine
     };
 
     if (editingItemIndex > -1) {
-        // --- Update Existing Item Logic ---
         const original = currentBatchItems[editingItemIndex];
-
-        // Simple comparison to check if changes were made
-        const hasChanges =
-            original.quantity !== newItem.quantity ||
-            original.unit_price !== newItem.unit_price ||
-            original.price_currency !== newItem.price_currency ||
-            original.other_charges !== newItem.other_charges ||
-            original.part_code !== newItem.part_code ||
-            original.gst_applicable !== newItem.gst_applicable;
-
+        const hasChanges = original.quantity !== newItem.quantity || original.unit_price !== newItem.unit_price || original.part_code !== newItem.part_code;
         if (!hasChanges) {
             showPurchaseToast('No changes were made to the item.', 'warning');
             editingItemIndex = -1;
@@ -625,30 +700,22 @@ function addItemToBatch() {
             resetPurchaseItemForm();
             return;
         }
-
-        // Update the item
-        currentBatchItems[editingItemIndex] = { ...original, ...newItem, total_estimated: totalINR };
+        currentBatchItems[editingItemIndex] = { ...original, ...newItem };
         showPurchaseToast('Item updated successfully.', 'success');
-        editingItemIndex = -1; // Reset mode
+        editingItemIndex = -1;
     } else {
-        // --- Add New Item Logic ---
         currentBatchItems.push(newItem);
     }
 
     renderBatchItems();
     resetPurchaseItemForm();
+    updateOrderSummary();
 }
 
 function resetPurchaseItemForm() {
-    // Reset inputs
-    if (productChoices) {
-        productChoices.removeActiveItems();
-        productChoices.setChoiceByValue('');
-    }
-
+    if (productChoices) { productChoices.removeActiveItems(); productChoices.setChoiceByValue(''); }
     const productSelect = document.getElementById('purchase-product-id');
     if (productSelect) productSelect.value = "";
-
     safeSetValue('purchase-quantity', 1);
     safeSetValue('purchase-other-charges', 0);
     safeSetValue('purchase-unit-price', '');
@@ -656,19 +723,10 @@ function resetPurchaseItemForm() {
     safeSetValue('purchase-item-description', '');
     safeSetValue('purchase-hsn-code', '');
     safeSetValue('purchase-category-name', '');
-
-    // Reset Button State
     const btn = document.getElementById('add-item-to-batch-btn');
-    if (btn) {
-        btn.innerHTML = "+ Add Item";
-        btn.classList.remove('btn-warning');
-        btn.classList.add('btn-primary');
-    }
-
-    // Reset editing index just in case called externally
-    // But usually addItemToBatch handles it. If canceled specifically, we might need a distinct cancel.
-
-    document.getElementById('last-prices-display').style.display = 'none';
+    if (btn) { btn.innerHTML = '+ Add Item'; btn.classList.remove('btn-warning'); btn.classList.add('btn-primary'); }
+    const lpd = document.getElementById('last-prices-display');
+    if (lpd) lpd.style.display = 'none';
 }
 
 // State for tracking item being edited
@@ -678,92 +736,77 @@ function renderBatchItems() {
     const tbody = document.getElementById('batch-items-tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
+    const symbols = { USD: '$', RMB: '¥', INR: '₹' };
+    const sym = symbols[selectedOrderCurrency] || '₹';
 
     if (currentBatchItems.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No items added.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color: var(--text-muted);">No items added yet.</td></tr>';
         return;
     }
 
     currentBatchItems.forEach((item, index) => {
         const tr = document.createElement('tr');
-
-        // Highlight logic
-        if (index === editingItemIndex) {
-            tr.style.background = 'rgba(255, 193, 7, 0.15)'; // Warning hints at editing
-            tr.style.borderLeft = '4px solid var(--warning)';
-        }
-
-        tr.style.cursor = 'pointer';
-        tr.onclick = (e) => {
-            if (e.target.closest('.action-btn')) return;
-            editItemFromBatch(index);
-        };
-
+        if (index === editingItemIndex) tr.className = 'batch-row-editing';
+        const lineTotal = item.unit_price * item.quantity;
+        const dec = selectedOrderCurrency === 'INR' ? 3 : 6;
         tr.innerHTML = `
-            <td>${item.part_code}</td>
-            <td>${item.item_description?.substring(0, 20) || ''}</td>
+            <td>${index + 1}</td>
+            <td><strong>${item.part_code}</strong></td>
+            <td>${item.item_description?.substring(0, 25) || ''}</td>
             <td>${item.quantity}</td>
-            <td>${item.price_currency} ${item.unit_price}</td>
-            <td>₹${item.total_estimated.toFixed(2)}</td>
+            <td>${sym}${item.unit_price.toFixed(dec)}</td>
+            <td style="font-weight:600;">${sym}${lineTotal.toFixed(dec)}</td>
             <td>
-                <button class="action-btn" onclick="removeItemFromBatch(${index})" style="color:red;" title="Remove">&times;</button>
+                <button class="batch-action-btn edit-btn" onclick="editItemFromBatch(${index})" title="Edit">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit
+                </button>
+                <button class="batch-action-btn remove-btn" onclick="removeItemFromBatch(${index})" title="Remove">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    Remove
+                </button>
             </td>
         `;
         tbody.appendChild(tr);
     });
+    updateOrderSummary();
 }
 
-function editItemFromBatch(index) {
+window.editItemFromBatch = function (index) {
     const item = currentBatchItems[index];
     if (!item) return;
+    editingItemIndex = index;
+    renderBatchItems();
 
-    editingItemIndex = index; // Set global state
-    renderBatchItems(); // Re-render to show highlight
+    // If product section is hidden, reopen it
+    const section = document.getElementById('product-selection-section');
+    if (section) section.style.display = 'block';
 
-    // Change Button to Indicate Update
     const btn = document.getElementById('add-item-to-batch-btn');
     if (btn) {
-        btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Update Item`;
-        btn.classList.remove('btn-primary');
-        btn.classList.add('btn-warning');
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Update Item`;
+        btn.classList.remove('btn-primary'); btn.classList.add('btn-warning');
     }
 
-    // Populate the form fields with item data
-    if (productChoices && item.product_id) {
-        productChoices.setChoiceByValue(item.product_id);
-    }
-
+    if (productChoices && item.product_id) productChoices.setChoiceByValue(item.product_id);
     safeSetValue('purchase-part-code', item.part_code);
     safeSetValue('purchase-item-description', item.item_description);
     safeSetValue('purchase-quantity', item.quantity);
     safeSetValue('purchase-unit-price', item.unit_price);
-
-    // Set currency
-    if (item.price_currency) {
-        const currEl = document.getElementById('purchase-price-currency');
-        if (currEl) currEl.value = item.price_currency;
-    }
-
-    safeSetValue('purchase-other-charges', item.other_charges);
     safeSetValue('purchase-hsn-code', item.hsn_code);
     safeSetValue('purchase-category-name', item.category_name);
-
-    // GST
-    const gstCheck = document.getElementById('purchase-gst-applicable');
-    if (gstCheck) gstCheck.checked = item.gst_applicable;
-    safeSetValue('purchase-gst-percentage', item.gst_percentage);
-
-    // Set hidden price fields
     safeSetValue('purchase-price-usd', item.price_usd);
     safeSetValue('purchase-price-rmb', item.price_rmb);
     safeSetValue('purchase-price-inr', item.price_inr);
-
-    showPurchaseToast(`Editing item #${index + 1}`, 'info');
+    showPurchaseToast(`Editing item #${index + 1} — modify and click Update`, 'info');
 }
 
 window.removeItemFromBatch = function (index) {
     currentBatchItems.splice(index, 1);
+    if (editingItemIndex === index) editingItemIndex = -1;
+    else if (editingItemIndex > index) editingItemIndex--;
     renderBatchItems();
+    updateOrderSummary();
 }
 
 window.clearPurchaseFilters = function () {
@@ -776,21 +819,29 @@ window.clearPurchaseFilters = function () {
 async function submitBatchOrder() {
     const placedBy = document.getElementById('purchase-order-placed-by').value;
     const supplierId = document.getElementById('purchase-common-supplier').value;
-
-    if (!placedBy || !supplierId) {
-        showPurchaseToast('Please fill Order Placed By and Supplier.', 'error');
-        return;
-    }
-
-
-
-
-    if (currentBatchItems.length === 0) {
-        showPurchaseToast('Please add at least one item.', 'error');
-        return;
-    }
+    if (!placedBy || !supplierId) { showPurchaseToast('Please fill Order Placed By and Supplier.', 'error'); return; }
+    if (currentBatchItems.length === 0) { showPurchaseToast('Please add at least one item.', 'error'); return; }
 
     const supplier = suppliersForPurchase.find(s => s.id == supplierId);
+
+    // Apply order-level charges to items
+    let orderOtherCharges = 0, orderGstApplicable = false, orderGstPct = 0;
+    orderOtherCharges = parseFloat(document.getElementById('purchase-order-other-charges')?.value || 0);
+    // GST only for INR
+    if (selectedOrderCurrency === 'INR') {
+        orderGstApplicable = document.getElementById('purchase-order-gst-applicable')?.checked !== false;
+        orderGstPct = parseFloat(document.getElementById('purchase-order-gst-percentage')?.value || 18);
+    }
+
+    // Distribute other charges equally across items
+    const chargesPerItem = currentBatchItems.length > 0 ? orderOtherCharges / currentBatchItems.length : 0;
+    const itemsWithCharges = currentBatchItems.map(item => ({
+        ...item,
+        price_currency: selectedOrderCurrency,
+        other_charges: chargesPerItem,
+        gst_applicable: orderGstApplicable,
+        gst_percentage: orderGstApplicable ? orderGstPct : 0
+    }));
 
     const payload = {
         order_placed_by: placedBy,
@@ -799,7 +850,8 @@ async function submitBatchOrder() {
         delivery_date: document.getElementById('purchase-delivery-date').value || null,
         delivery_type: document.getElementById('purchase-delivery-type').value,
         global_remarks: document.getElementById('purchase-remarks').value,
-        items: currentBatchItems
+        order_currency: selectedOrderCurrency,
+        items: itemsWithCharges
     };
 
     const result = await fetchPurchaseAPI('/purchase-orders/batch', {
@@ -808,11 +860,11 @@ async function submitBatchOrder() {
     });
 
     if (result.success) {
-        showPurchaseToast('Batch created successfully!', 'success');
+        showPurchaseToast('Order saved successfully!', 'success');
         closePurchaseModal();
         loadPurchaseOrders();
     } else {
-        showPurchaseToast(result.error || result.detail || 'Failed to create batch.', 'error');
+        showPurchaseToast(result.error || result.detail || 'Failed to save order.', 'error');
     }
 }
 
@@ -861,22 +913,40 @@ window.openPurchaseModal = function (isEdit = false) {
         purchaseFormView.style.display = 'block';
 
         if (!isEdit) {
-            // Reset Form for New Entry
             loadProductsForPurchase();
             loadSuppliersForPurchase();
-
             currentBatchItems = [];
-            editingItemIndex = -1; // Reset Edit State
+            editingItemIndex = -1;
+            productSelectionDone = false;
+            selectedOrderCurrency = 'INR';
+
+            // Reset currency radio
+            const inrRadio = document.querySelector('input[name="order-currency"][value="INR"]');
+            if (inrRadio) inrRadio.checked = true;
+
             renderBatchItems();
             resetPurchaseItemForm();
             safeSetValue('purchase-order-placed-by', '');
             safeSetValue('purchase-remarks', '');
+            safeSetValue('purchase-order-other-charges', 0);
+            safeSetValue('purchase-order-gst-percentage', 18);
+            const gstCheck = document.getElementById('purchase-order-gst-applicable');
+            if (gstCheck) gstCheck.checked = true;
 
             if (purchaseSupplierChoices) purchaseSupplierChoices.setChoiceByValue('');
-
-            document.getElementById('last-prices-display').style.display = 'none';
+            const lpd = document.getElementById('last-prices-display');
+            if (lpd) lpd.style.display = 'none';
             const title = document.getElementById('purchase-form-title');
             if (title) title.textContent = 'New Purchase Order';
+
+            // Reset sections visibility
+            const prodSection = document.getElementById('product-selection-section');
+            if (prodSection) prodSection.style.display = 'block';
+            const otherSection = document.getElementById('other-charges-section');
+            if (otherSection) otherSection.style.display = 'none';
+
+            updateCurrencyUI();
+            updateOrderSummary();
         }
     }
 }
@@ -902,6 +972,11 @@ window.editPurchaseOrder = function (purchaseId) {
     const titleEl = document.getElementById('purchase-form-title');
     if (titleEl) titleEl.textContent = `Edit Purchase Order (${purchaseId})`;
 
+    // Restore currency from saved order
+    selectedOrderCurrency = first.price_currency || 'INR';
+    const currRadio = document.querySelector(`input[name="order-currency"][value="${selectedOrderCurrency}"]`);
+    if (currRadio) currRadio.checked = true;
+
     // Populate Header Fields
     safeSetValue('purchase-order-placed-by', first.order_placed_by);
     safeSetValue('purchase-remarks', first.remarks || '');
@@ -926,13 +1001,11 @@ window.editPurchaseOrder = function (purchaseId) {
 
     // Populate Items
     currentBatchItems = orders.map(o => {
-        const rate = currencyRatesForPurchase[o.price_currency] || 1;
-        // Re-calculate estimated total in INR for display
-        const estimated = (parseFloat(o.unit_price || 0) * rate * parseFloat(o.quantity || 0)) + parseFloat(o.other_charges || 0);
+        const lineTotal = parseFloat(o.unit_price || 0) * parseFloat(o.quantity || 0);
 
         return {
             tempId: Date.now() + Math.random(),
-            product_id: o.product_id, // Now available from backend
+            product_id: o.product_id,
             part_code: o.part_code,
             item_description: o.item_description,
             hsn_code: o.hsn_code,
@@ -946,12 +1019,29 @@ window.editPurchaseOrder = function (purchaseId) {
             other_charges: parseFloat(o.other_charges || 0),
             gst_applicable: o.gst_applicable,
             gst_percentage: parseFloat(o.gst_percentage || 18),
-            total_estimated: estimated
+            total_estimated: lineTotal
         };
     });
 
+    // Restore other charges / GST from first order
+    const totalOtherCharges = orders.reduce((sum, o) => sum + parseFloat(o.other_charges || 0), 0);
+    safeSetValue('purchase-order-other-charges', totalOtherCharges);
+    safeSetValue('purchase-order-gst-percentage', first.gst_percentage || 18);
+    const gstCheck = document.getElementById('purchase-order-gst-applicable');
+    if (gstCheck) gstCheck.checked = first.gst_applicable !== false;
+
+    // Show product section with items for editing
+    productSelectionDone = false;
+    editingItemIndex = -1;
+    const prodSection = document.getElementById('product-selection-section');
+    if (prodSection) prodSection.style.display = 'block';
+    const otherSection = document.getElementById('other-charges-section');
+    if (otherSection) otherSection.style.display = 'none';
+
     renderBatchItems();
-    showPurchaseToast(`Loaded ${currentBatchItems.length} items for editing.`, 'info');
+    updateCurrencyUI();
+    updateOrderSummary();
+    showPurchaseToast(`Loaded ${currentBatchItems.length} items for editing. Click on Edit to modify each item.`, 'info');
 }
 
 window.openPurchaseModalWithItems = function (purchaseId) {
