@@ -577,6 +577,9 @@ def get_purchase_orders(db: Session = Depends(get_db)):
             "delivery_type": o.delivery_type,
             "pi_status": o.pi_status,
             "remarks": o.remarks,
+            "dispatched_quantity": o.dispatched_quantity or 0,
+            "short_closed": o.short_closed or False,
+            "short_closed_quantity": o.short_closed_quantity or 0,
         })
     
     return {"success": True, "data": result}
@@ -999,7 +1002,7 @@ def update_purchase_order_status(
     db: Session = Depends(get_db)
 ):
     """Update just the PI status of a purchase order."""
-    valid_statuses = ["open", "confirmed", "ready_to_dispatch", "shipped", "delivered", "cancelled"]
+    valid_statuses = ["open", "confirmed", "ready_to_dispatch", "partially_dispatched", "dispatched", "short_closed", "shipped", "delivered", "cancelled"]
     
     if status not in valid_statuses:
         raise HTTPException(
@@ -1019,6 +1022,109 @@ def update_purchase_order_status(
     db.commit()
     
     return {"success": True, "message": f"Status updated to '{status}'"}
+
+
+@router.post("/purchase-orders/dispatch")
+def dispatch_purchase_order_items(data: dict, db: Session = Depends(get_db)):
+    """Dispatch specific quantities from a purchase order."""
+    purchase_id = data.get("purchase_id")
+    items = data.get("items", [])  # [{id: int, dispatch_qty: int}]
+    
+    if not purchase_id or not items:
+        raise HTTPException(status_code=400, detail="purchase_id and items are required")
+    
+    updated = 0
+    for item_data in items:
+        order_id = item_data.get("id")
+        dispatch_qty = int(item_data.get("dispatch_qty", 0))
+        if dispatch_qty <= 0:
+            continue
+        
+        order = db.query(PurchaseOrder).filter(
+            PurchaseOrder.id == order_id,
+            PurchaseOrder.is_active == True
+        ).first()
+        
+        if not order:
+            continue
+        
+        already_dispatched = order.dispatched_quantity or 0
+        remaining = order.quantity - already_dispatched
+        
+        if dispatch_qty > remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dispatch qty ({dispatch_qty}) exceeds remaining ({remaining}) for {order.part_code}"
+            )
+        
+        order.dispatched_quantity = already_dispatched + dispatch_qty
+        
+        # If fully dispatched, update status
+        if order.dispatched_quantity >= order.quantity:
+            order.pi_status = "dispatched"
+        else:
+            order.pi_status = "partially_dispatched"
+        
+        updated += 1
+    
+    db.commit()
+    return {"success": True, "updated": updated, "message": f"{updated} item(s) dispatched successfully"}
+
+
+@router.post("/purchase-orders/short-close")
+def short_close_purchase_order_items(data: dict, db: Session = Depends(get_db)):
+    """Short close specific quantities from a purchase order.
+    The entered quantity is the amount to short-close (not dispatch).
+    """
+    purchase_id = data.get("purchase_id")
+    items = data.get("items", [])  # [{id: int, dispatch_qty: int}] — dispatch_qty here = short close qty
+    
+    if not purchase_id:
+        raise HTTPException(status_code=400, detail="purchase_id is required")
+    
+    if not items or not any(int(i.get("dispatch_qty", 0)) > 0 for i in items):
+        raise HTTPException(status_code=400, detail="Please enter quantity to short-close for at least one item")
+    
+    updated = 0
+    for item_data in items:
+        order_id = item_data.get("id")
+        short_close_qty = int(item_data.get("dispatch_qty", 0))
+        
+        if short_close_qty <= 0:
+            continue
+        
+        order = db.query(PurchaseOrder).filter(
+            PurchaseOrder.id == order_id,
+            PurchaseOrder.is_active == True
+        ).first()
+        
+        if not order:
+            continue
+        
+        already_dispatched = order.dispatched_quantity or 0
+        already_short_closed = order.short_closed_quantity or 0
+        remaining = order.quantity - already_dispatched - already_short_closed
+        
+        if short_close_qty > remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Short close qty ({short_close_qty}) exceeds remaining ({remaining}) for {order.part_code}"
+            )
+        
+        order.short_closed_quantity = already_short_closed + short_close_qty
+        order.short_closed = True
+        
+        # Check if item is now fully accounted for (dispatched + short_closed >= ordered)
+        total_accounted = (order.dispatched_quantity or 0) + order.short_closed_quantity
+        if total_accounted >= order.quantity:
+            order.pi_status = "short_closed"
+        else:
+            order.pi_status = "partially_dispatched"
+        
+        updated += 1
+    
+    db.commit()
+    return {"success": True, "updated": updated, "message": f"{updated} item(s) short-closed successfully"}
 
 
 # =============================================================================

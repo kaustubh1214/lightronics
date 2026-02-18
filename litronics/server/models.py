@@ -272,6 +272,9 @@ class PurchaseOrder(Base):
     
     # Quantity
     quantity = Column(Integer, default=1)
+    dispatched_quantity = Column(Integer, default=0)  # How much has been dispatched so far
+    short_closed = Column(Boolean, default=False)  # Whether any qty was short-closed
+    short_closed_quantity = Column(Integer, default=0)  # How many units were short-closed
     
     # Pricing - Support for all 3 currencies (reference prices)
     price_currency = Column(String(10), default="USD")  # Primary currency

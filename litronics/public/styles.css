@@ -1483,3 +1483,39 @@ tr.no-price-row {
         max-height: 500px;
     }
 }
+
+/* =============================================================================
+   Dispatch Popup & Status Badges
+   ============================================================================= */
+
+.status-partially_dispatched {
+    background: #fef3c7 !important;
+    color: #92400e !important;
+}
+
+.status-short_closed {
+    background: #fde8e8 !important;
+    color: #991b1b !important;
+}
+
+.status-dispatched {
+    background: #d1fae5 !important;
+    color: #065f46 !important;
+}
+
+#dispatch-popup-overlay .modal-content {
+    animation: slideDown 0.3s ease;
+}
+
+#dispatch-popup-overlay .data-table th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 2;
+}
+
+.dispatch-qty-input:focus {
+    outline: none;
+    border-color: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}

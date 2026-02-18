@@ -87,6 +87,16 @@ def ensure_purchase_schema() -> None:
                     {"purchase_id": purchase_id, "id": row_id},
                 )
 
+        # Ensure dispatched_quantity and short_closed columns exist
+        if not _column_exists(conn, "purchase_orders", "dispatched_quantity"):
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN dispatched_quantity INTEGER DEFAULT 0"))
+
+        if not _column_exists(conn, "purchase_orders", "short_closed"):
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN short_closed BOOLEAN DEFAULT 0"))
+
+        if not _column_exists(conn, "purchase_orders", "short_closed_quantity"):
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN short_closed_quantity INTEGER DEFAULT 0"))
+
         # Enforce uniqueness via index (works even if the column wasn't declared UNIQUE).
         conn.execute(
             text(

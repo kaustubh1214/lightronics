@@ -274,6 +274,29 @@ function renderGroupedOrders() {
         groups[key].items.push(item);
     });
 
+    // Compute aggregate status for each group based on all items
+    Object.values(groups).forEach(group => {
+        const allComplete = group.items.every(i => {
+            const ordered = parseInt(i.quantity) || 1;
+            const dispatched = parseInt(i.dispatched_quantity) || 0;
+            const sc = parseInt(i.short_closed_quantity) || 0;
+            return (dispatched + sc) >= ordered;
+        });
+        const anyDispatched = group.items.some(i => (parseInt(i.dispatched_quantity) || 0) > 0);
+        const anyShortClosed = group.items.some(i => (parseInt(i.short_closed_quantity) || 0) > 0);
+        const allFullyDispatched = group.items.every(i => (parseInt(i.dispatched_quantity) || 0) >= (parseInt(i.quantity) || 1));
+
+        if (allFullyDispatched) {
+            group.status = 'dispatched';
+        } else if (allComplete && anyShortClosed) {
+            group.status = 'short_closed';
+        } else if (anyDispatched || anyShortClosed) {
+            group.status = 'partially_dispatched';
+        } else {
+            group.status = group.items[0]?.pi_status || 'open';
+        }
+    });
+
     const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.order_date) - new Date(a.order_date));
 
     tbody.innerHTML = '';
@@ -313,14 +336,14 @@ function renderGroupedOrders() {
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                         </svg>
                     </button>
-                    ${(group.status === 'open' || group.status === 'confirmed') ? `
-                    <button class="btn btn-sm btn-success" onclick="markOrderReadyToDispatch('${group.id}')" title="Mark Ready to Dispatch">
+                    ${['open', 'confirmed', 'ready_to_dispatch', 'partially_dispatched'].includes(group.status) ? `
+                    <button class="btn btn-sm btn-success" onclick="openDispatchPopup('${group.id}')" title="Dispatch">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                             <path d="M5 12h14M12 5l7 7-7 7"/>
                         </svg>
-                        Ready to Dispatch
+                        Dispatch
                     </button>
-                    ` : (group.status === 'ready_to_dispatch' ? `<span class="ready-badge">✓ Ready</span>` : (group.status === 'dispatched' ? `<span class="status-badge status-dispatched">Dispatched</span>` : ''))}
+                    ` : (group.status === 'dispatched' ? `<span class="status-badge status-dispatched">✓ Fully Dispatched</span>` : (group.status === 'short_closed' ? `<span class="status-badge" style="background: #fef3c7; color: #92400e;">⚠ Short Closed</span>` : ''))}
                 </div>
             </td>
         `;
@@ -430,40 +453,176 @@ async function updateItemStatus(itemId, status) {
 }
 
 // Mark all items in a purchase order as ready to dispatch
-window.markOrderReadyToDispatch = async function (purchaseId) {
-    // Find all items with this purchase_id
-    const itemsToUpdate = purchaseOrdersData.filter(item => item.purchase_id === purchaseId);
+// Track which purchase ID the dispatch popup is currently showing
+let dispatchPopupPurchaseId = null;
 
-    if (itemsToUpdate.length === 0) {
+window.openDispatchPopup = function (purchaseId) {
+    dispatchPopupPurchaseId = purchaseId;
+    const orders = purchaseOrdersData.filter(o => o.purchase_id === purchaseId);
+    if (orders.length === 0) {
         showPurchaseToast('No items found for this order', 'error');
         return;
     }
 
-    // Confirm action
-    if (!confirm(`Mark ${itemsToUpdate.length} item(s) in order ${purchaseId} as Ready to Dispatch?`)) {
+    const first = orders[0];
+    const overlay = document.getElementById('dispatch-popup-overlay');
+    const titleEl = document.getElementById('dispatch-popup-title');
+    const infoEl = document.getElementById('dispatch-popup-info');
+    const tbody = document.getElementById('dispatch-popup-items-tbody');
+
+    // Set title
+    titleEl.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" style="vertical-align: -3px; margin-right: 8px;">
+            <rect x="1" y="3" width="15" height="13"/>
+            <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
+            <circle cx="5.5" cy="18.5" r="2.5"/>
+            <circle cx="18.5" cy="18.5" r="2.5"/>
+        </svg>
+        Dispatch — ${first.order_number} <small style="color:var(--text-muted); font-weight:400;">(${purchaseId})</small>
+    `;
+
+    // Order info bar
+    const currSym = first.price_currency === 'USD' ? '$' : first.price_currency === 'RMB' ? '¥' : '₹';
+    const totalVal = orders.reduce((s, o) => s + parseFloat(o.final_total || 0), 0);
+    infoEl.innerHTML = `
+        <div><strong>Supplier:</strong> ${first.supplier_name || '-'}</div>
+        <div><strong>Date:</strong> ${first.order_date ? new Date(first.order_date).toLocaleDateString('en-IN') : '-'}</div>
+        <div><strong>Currency:</strong> ${first.price_currency || 'INR'}</div>
+        <div><strong>Total Value:</strong> ${currSym}${totalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+        <div><strong>Items:</strong> ${orders.length}</div>
+    `;
+
+    // Build items table
+    tbody.innerHTML = '';
+    orders.forEach((item, idx) => {
+        const ordered = parseInt(item.quantity) || 0;
+        const dispatched = parseInt(item.dispatched_quantity) || 0;
+        const shortClosed = parseInt(item.short_closed_quantity) || 0;
+        const remaining = ordered - dispatched - shortClosed;
+        const isComplete = remaining <= 0;
+
+        const tr = document.createElement('tr');
+        if (isComplete) {
+            tr.style.opacity = '0.5';
+        }
+        tr.innerHTML = `
+            <td>${idx + 1}</td>
+            <td><strong>${item.part_code || '-'}</strong></td>
+            <td>${item.item_description || '-'}</td>
+            <td style="text-align:center;">${ordered}</td>
+            <td style="text-align:center;">
+                ${dispatched > 0 ? `<span style="color: #10b981; font-weight:600;">${dispatched}</span>` : '0'}
+            </td>
+            <td style="text-align:center;">
+                ${shortClosed > 0 ? `<span style="color: #f59e0b; font-weight:600;">${shortClosed}</span>` : '0'}
+            </td>
+            <td style="text-align:center;">
+                ${isComplete
+                ? `<span style="color: var(--text-muted); font-weight:600;">0</span>`
+                : `<span style="font-weight:600;">${remaining}</span>`}
+            </td>
+            <td style="text-align:center;">
+                ${isComplete ? '-' : `
+                    <input type="number" class="dispatch-qty-input" data-item-id="${item.id}" 
+                        data-max="${remaining}" min="0" max="${remaining}" value="0"
+                        style="width: 80px; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 6px; text-align: center; font-size: 0.9rem;"
+                        onchange="validateDispatchQty(this)">
+                `}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Show overlay
+    overlay.classList.add('active');
+}
+
+window.closeDispatchPopup = function () {
+    const overlay = document.getElementById('dispatch-popup-overlay');
+    if (overlay) overlay.classList.remove('active');
+    dispatchPopupPurchaseId = null;
+}
+
+window.validateDispatchQty = function (input) {
+    const max = parseInt(input.dataset.max) || 0;
+    let val = parseInt(input.value) || 0;
+    if (val < 0) val = 0;
+    if (val > max) val = max;
+    input.value = val;
+}
+
+window.submitPurchaseDispatch = async function () {
+    if (!dispatchPopupPurchaseId) return;
+
+    const inputs = document.querySelectorAll('.dispatch-qty-input');
+    const items = [];
+    let totalDispatch = 0;
+
+    inputs.forEach(inp => {
+        const qty = parseInt(inp.value) || 0;
+        if (qty > 0) {
+            items.push({ id: parseInt(inp.dataset.itemId), dispatch_qty: qty });
+            totalDispatch += qty;
+        }
+    });
+
+    if (totalDispatch === 0) {
+        showPurchaseToast('Please enter dispatch quantity for at least one item.', 'error');
         return;
     }
 
-    let successCount = 0;
-    let errorCount = 0;
+    if (!confirm(`Dispatch ${totalDispatch} unit(s) for this order?`)) return;
 
-    // Update each item's status
-    for (const item of itemsToUpdate) {
-        const result = await fetchPurchaseAPI(`/purchase-orders/${item.id}/status?status=ready_to_dispatch`, { method: 'PATCH' });
-        if (result.success) {
-            successCount++;
-        } else {
-            errorCount++;
-        }
-    }
+    const result = await fetchPurchaseAPI('/purchase-orders/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purchase_id: dispatchPopupPurchaseId, items })
+    });
 
-    if (successCount > 0) {
-        showPurchaseToast(`${successCount} item(s) marked as Ready to Dispatch! They will now appear in the Dispatch module.`, 'success');
+    if (result.success) {
+        showPurchaseToast(result.message || 'Items dispatched successfully!', 'success');
+        closeDispatchPopup();
         loadPurchaseOrders();
+    } else {
+        showPurchaseToast(result.detail || result.message || 'Failed to dispatch items.', 'error');
+    }
+}
+
+window.submitPurchaseShortClose = async function () {
+    if (!dispatchPopupPurchaseId) return;
+
+    const inputs = document.querySelectorAll('.dispatch-qty-input');
+    const items = [];
+    let totalShortClose = 0;
+
+    inputs.forEach(inp => {
+        const qty = parseInt(inp.value) || 0;
+        if (qty > 0) {
+            items.push({ id: parseInt(inp.dataset.itemId), dispatch_qty: qty });
+            totalShortClose += qty;
+        }
+    });
+
+    if (totalShortClose === 0) {
+        showPurchaseToast('Please enter quantity to short-close for at least one item.', 'error');
+        return;
     }
 
-    if (errorCount > 0) {
-        showPurchaseToast(`${errorCount} item(s) failed to update`, 'error');
+    if (!confirm(`Short Close ${totalShortClose} unit(s)? These units will be marked as cancelled/unfulfilled. Remaining quantities will stay open for future dispatch.`)) return;
+
+    const result = await fetchPurchaseAPI('/purchase-orders/short-close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purchase_id: dispatchPopupPurchaseId, items })
+    });
+
+    if (result.success) {
+        showPurchaseToast(result.message || 'Items short-closed successfully!', 'success');
+        closeDispatchPopup();
+        loadPurchaseOrders();
+    } else {
+        showPurchaseToast(result.detail || result.message || 'Failed to short-close items.', 'error');
     }
 }
 

@@ -662,6 +662,75 @@
                 </div>
             </div>
 
+            <!-- DISPATCH POPUP MODAL -->
+            <div id="dispatch-popup-overlay" class="modal-overlay" style="z-index: 2100;">
+                <div class="modal modal-content" style="max-width: 900px; width: 95%; padding: 24px;">
+                    <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center;">
+                        <h2 id="dispatch-popup-title" style="margin:0; font-size:1.25rem;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" style="vertical-align: -3px; margin-right: 8px;">
+                                <rect x="1" y="3" width="15" height="13" />
+                                <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+                                <circle cx="5.5" cy="18.5" r="2.5" />
+                                <circle cx="18.5" cy="18.5" r="2.5" />
+                            </svg>
+                            Dispatch Order
+                        </h2>
+                        <button class="btn btn-sm" onclick="closeDispatchPopup()"
+                            style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+                    </div>
+
+                    <!-- Order Info Bar -->
+                    <div id="dispatch-popup-info"
+                        style="display:flex; gap:20px; flex-wrap:wrap; padding: 12px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 16px; font-size: 0.9rem; color: var(--text-muted);">
+                    </div>
+
+                    <!-- Products Table -->
+                    <div style="overflow-x: auto; max-height: 400px; overflow-y: auto;">
+                        <table class="data-table" style="width:100%; font-size: 0.9rem;">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Part Code</th>
+                                    <th>Description</th>
+                                    <th>Ordered Qty</th>
+                                    <th>Dispatched</th>
+                                    <th>Short Closed</th>
+                                    <th>Remaining</th>
+                                    <th>Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dispatch-popup-items-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div
+                        style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                        <button class="btn btn-secondary" onclick="closeDispatchPopup()">Cancel</button>
+                        <button class="btn" id="dispatch-short-close-btn" onclick="submitPurchaseShortClose()"
+                            style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; border: none;">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" style="margin-right:5px; vertical-align: -2px;">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M15 9l-6 6M9 9l6 6" />
+                            </svg>
+                            Short Close
+                        </button>
+                        <button class="btn btn-primary" id="purchase-dispatch-submit-btn"
+                            onclick="submitPurchaseDispatch()"
+                            style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" style="margin-right:5px; vertical-align: -2px;">
+                                <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                            Dispatch
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- DISPATCH MODULE -->
             <div id="dispatch-view" class="module-view" style="display: none;">
                 <!-- Header -->
@@ -1509,7 +1578,7 @@
     <!-- Choices.js for searchable dropdowns -->
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
     <script src="/static/app.js?v=17"></script>
-    <script src="/static/purchase.js?v=105"></script>
+    <script src="/static/purchase.js?v=106"></script>
     <script src="/static/styles.css?v=10"></script>
     <script src="/static/dispatch.js?v=120"></script>
 </body>
