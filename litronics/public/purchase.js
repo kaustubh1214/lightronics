@@ -201,9 +201,11 @@ window.switchPurchaseTab = function (tab) {
     if (activeBtn) activeBtn.classList.add('active');
 
     // Toggle Filter Bars
+    const ordersFilterBar = document.getElementById('orders-filter-bar');
     const filterBar = document.getElementById('purchase-filter-bar');
     const paymentsFilterBar = document.getElementById('payments-filter-bar');
 
+    if (ordersFilterBar) ordersFilterBar.style.display = tab === 'orders' ? 'flex' : 'none';
     if (filterBar) filterBar.style.display = tab === 'items' ? 'flex' : 'none';
     if (paymentsFilterBar) paymentsFilterBar.style.display = tab === 'payments' ? 'flex' : 'none';
 
@@ -262,12 +264,18 @@ function renderGroupedOrders() {
                 order_number: item.order_number,
                 order_placed_by: item.order_placed_by,
                 order_date: item.order_date,
+                delivery_date: item.delivery_date,
                 supplier_name: item.supplier_name,
+                price_currency: item.price_currency,
                 items_count: 0,
                 total_value: 0,
                 status: item.pi_status,
                 items: []
             };
+        }
+        // Use the earliest delivery_date across items for the group
+        if (item.delivery_date && (!groups[key].delivery_date || item.delivery_date < groups[key].delivery_date)) {
+            groups[key].delivery_date = item.delivery_date;
         }
         groups[key].items_count++;
         groups[key].total_value += parseFloat(item.final_total || 0);
@@ -297,11 +305,45 @@ function renderGroupedOrders() {
         }
     });
 
-    const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.order_date) - new Date(a.order_date));
+    // Populate the orders-supplier dropdown dynamically
+    const supplierSelect = document.getElementById('filter-orders-supplier');
+    if (supplierSelect) {
+        const currentVal = supplierSelect.value;
+        const uniqueSuppliers = [...new Set(Object.values(groups).map(g => g.supplier_name).filter(Boolean))].sort();
+        supplierSelect.innerHTML = '<option value="">All Suppliers</option>' + uniqueSuppliers.map(s => `<option value="${s}">${s}</option>`).join('');
+        supplierSelect.value = currentVal;
+    }
+
+    // Apply orders-tab filters
+    const fDeliveryDate = document.getElementById('filter-orders-delivery-date')?.value || '';
+    const fOrdersStatus = document.getElementById('filter-orders-status')?.value || '';
+    const fOrdersSupplier = document.getElementById('filter-orders-supplier')?.value || '';
+
+    let filteredGroups = Object.values(groups);
+
+    if (fDeliveryDate) {
+        const filterDate = new Date(fDeliveryDate);
+        filterDate.setHours(23, 59, 59, 999);
+        filteredGroups = filteredGroups.filter(g => {
+            if (!g.delivery_date) return false;
+            return new Date(g.delivery_date) <= filterDate;
+        });
+    }
+    if (fOrdersStatus) {
+        filteredGroups = filteredGroups.filter(g => g.status === fOrdersStatus);
+    }
+    if (fOrdersSupplier) {
+        filteredGroups = filteredGroups.filter(g => g.supplier_name === fOrdersSupplier);
+    }
+
+    const sortedGroups = filteredGroups.sort((a, b) => new Date(b.order_date) - new Date(a.order_date));
+
+    // Store filtered groups for export
+    window._lastFilteredOrderGroups = sortedGroups;
 
     tbody.innerHTML = '';
     if (sortedGroups.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 30px;">No orders found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 30px;">No orders found matching filters.</td></tr>';
         return;
     }
 
@@ -627,6 +669,47 @@ window.submitPurchaseShortClose = async function () {
 }
 
 // =============================================================================
+// Orders Filter & Export
+// =============================================================================
+
+window.clearOrdersFilters = function () {
+    ['filter-orders-delivery-date', 'filter-orders-status', 'filter-orders-supplier'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    renderCurrentView();
+}
+
+window.exportOrdersToExcel = function () {
+    const groups = window._lastFilteredOrderGroups;
+    if (!groups || groups.length === 0) {
+        showPurchaseToast('No orders to export. Adjust your filters.', 'error');
+        return;
+    }
+
+    // Build query params from current filters
+    const params = new URLSearchParams();
+    const deliveryDate = document.getElementById('filter-orders-delivery-date')?.value;
+    const status = document.getElementById('filter-orders-status')?.value;
+    const supplier = document.getElementById('filter-orders-supplier')?.value;
+
+    if (deliveryDate) params.set('delivery_date', deliveryDate);
+    if (status) params.set('status', status);
+    if (supplier) params.set('supplier', supplier);
+
+    // Download the file from backend
+    const url = `/api/purchase-orders/export-excel?${params.toString()}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    showPurchaseToast(`Exporting ${groups.length} order(s) to Excel...`, 'success');
+}
+
+// =============================================================================
 // Batch / Add Item Logic
 // =============================================================================
 
@@ -658,6 +741,12 @@ function setupPurchaseEventListeners() {
     ['filter-purchase-id', 'filter-part-code', 'filter-supplier', 'filter-status', 'filter-delivery-date'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', renderCurrentView);
+    });
+
+    // Orders tab filters
+    ['filter-orders-delivery-date', 'filter-orders-status', 'filter-orders-supplier'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', renderCurrentView);
     });
 
     document.getElementById('add-item-to-batch-btn')?.addEventListener('click', addItemToBatch);

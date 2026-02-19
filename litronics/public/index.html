@@ -271,6 +271,47 @@
                         </div>
                     </div>
 
+                    <!-- Orders Filter Bar -->
+                    <div id="orders-filter-bar" class="filter-bar" style="display: flex;">
+                        <div class="filter-group">
+                            <label>Expected Delivery Date (On/Before)</label>
+                            <input type="date" id="filter-orders-delivery-date" class="filter-input">
+                        </div>
+                        <div class="filter-group">
+                            <label>Status</label>
+                            <select id="filter-orders-status" class="filter-input">
+                                <option value="">All Statuses</option>
+                                <option value="open">Open</option>
+                                <option value="confirmed">Confirmed</option>
+                                <option value="ready_to_dispatch">Ready to Dispatch</option>
+                                <option value="partially_dispatched">Partially Dispatched</option>
+                                <option value="dispatched">Dispatched</option>
+                                <option value="short_closed">Short Closed</option>
+                                <option value="delivered">Delivered</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Supplier</label>
+                            <select id="filter-orders-supplier" class="filter-input">
+                                <option value="">All Suppliers</option>
+                            </select>
+                        </div>
+                        <div class="filter-group" style="display: flex; gap: 8px; align-items: flex-end;">
+                            <button class="btn btn-secondary" onclick="clearOrdersFilters()"
+                                style="padding: 8px 12px; font-size: 0.85rem; margin-top: 19px;">Clear</button>
+                            <button class="btn btn-primary" onclick="exportOrdersToExcel()"
+                                style="padding: 8px 14px; font-size: 0.85rem; margin-top: 19px; background: linear-gradient(135deg, #059669, #10b981); border: none;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" style="vertical-align: -2px; margin-right: 4px;">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="7 10 12 15 17 10" />
+                                    <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                                Export Excel
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Filter Bar (Item Wise Only via JS logic, but we add Payments bar here) -->
                     <div id="purchase-filter-bar" class="filter-bar">
                         <!-- Existing Item Filters... -->
@@ -1578,7 +1619,7 @@
     <!-- Choices.js for searchable dropdowns -->
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
     <script src="/static/app.js?v=17"></script>
-    <script src="/static/purchase.js?v=106"></script>
+    <script src="/static/purchase.js?v=108"></script>
     <script src="/static/styles.css?v=10"></script>
     <script src="/static/dispatch.js?v=120"></script>
 </body>

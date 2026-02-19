@@ -628,6 +628,349 @@ def get_ready_to_dispatch_orders(db: Session = Depends(get_db)):
     return {"success": True, "data": list(batches.values())}
 
 
+@router.get("/purchase-orders/export-excel")
+def export_purchase_orders_excel(
+    delivery_date: str = None,
+    status: str = None,
+    supplier: str = None,
+    db: Session = Depends(get_db)
+):
+    """Export purchase orders to a professionally formatted Excel file.
+    This route MUST be defined before /purchase-orders/{order_id} to avoid routing conflicts.
+    """
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from collections import OrderedDict
+
+    # --- Fetch & filter orders ---
+    orders = db.query(PurchaseOrder).filter(
+        PurchaseOrder.is_active == True
+    ).order_by(PurchaseOrder.created_at.desc()).all()
+
+    # Group by purchase_id
+    groups = OrderedDict()
+    for o in orders:
+        key = o.purchase_id
+        if key not in groups:
+            groups[key] = {
+                "purchase_id": o.purchase_id,
+                "order_number": o.order_number,
+                "order_placed_by": o.order_placed_by,
+                "order_date": o.order_date,
+                "delivery_date": o.delivery_date,
+                "supplier_name": o.supplier_name,
+                "price_currency": o.price_currency,
+                "items": []
+            }
+        # Track earliest delivery_date
+        if o.delivery_date:
+            if not groups[key]["delivery_date"] or o.delivery_date < groups[key]["delivery_date"]:
+                groups[key]["delivery_date"] = o.delivery_date
+        groups[key]["items"].append(o)
+
+    # Compute aggregate status per group
+    for key, grp in groups.items():
+        items = grp["items"]
+        all_dispatched = all((i.dispatched_quantity or 0) >= (i.quantity or 1) for i in items)
+        any_dispatched = any((i.dispatched_quantity or 0) > 0 for i in items)
+        all_complete = all(((i.dispatched_quantity or 0) + (i.short_closed_quantity or 0)) >= (i.quantity or 1) for i in items)
+        any_short = any((i.short_closed_quantity or 0) > 0 for i in items)
+        if all_dispatched:
+            grp["status"] = "dispatched"
+        elif all_complete and any_short:
+            grp["status"] = "short_closed"
+        elif any_dispatched or any_short:
+            grp["status"] = "partially_dispatched"
+        else:
+            grp["status"] = items[0].pi_status if items else "open"
+        grp["total_value"] = sum(float(i.final_total or 0) for i in items)
+        grp["items_count"] = len(items)
+
+    # Apply filters
+    filtered = list(groups.values())
+    if delivery_date:
+        try:
+            dd = datetime.strptime(delivery_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            filtered = [g for g in filtered if g["delivery_date"] and g["delivery_date"] <= dd]
+        except ValueError:
+            pass
+    if status:
+        filtered = [g for g in filtered if g["status"] == status]
+    if supplier:
+        filtered = [g for g in filtered if g["supplier_name"] == supplier]
+
+    # Sort by order_date descending
+    filtered.sort(key=lambda g: g["order_date"] or datetime.min, reverse=True)
+
+    # --- Build Excel workbook ---
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Purchase Orders"
+
+    # Style definitions
+    navy = "1B2A4A"
+    dark_green = "1A7A4C"
+    light_blue = "EBF5FB"
+    border_color = "B0BEC5"
+
+    title_font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+    title_fill = PatternFill(start_color=navy, end_color=navy, fill_type="solid")
+    subtitle_font = Font(name="Calibri", size=10, color="AAAAAA")
+
+    order_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    order_header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
+    order_label_font = Font(name="Calibri", size=10, bold=True, color="34495E")
+    order_value_font = Font(name="Calibri", size=10, color="2C3E50")
+
+    product_header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    product_header_fill = PatternFill(start_color=dark_green, end_color=dark_green, fill_type="solid")
+    product_font = Font(name="Calibri", size=10, color="333333")
+    product_alt_fill = PatternFill(start_color="F8F9FA", end_color="F8F9FA", fill_type="solid")
+    product_white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+    summary_header_font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
+    summary_fill = PatternFill(start_color=navy, end_color=navy, fill_type="solid")
+    summary_label_font = Font(name="Calibri", size=10, bold=True)
+    summary_value_font = Font(name="Calibri", size=10, bold=True, color=dark_green)
+
+    thin_border = Border(
+        left=Side(style="thin", color=border_color),
+        right=Side(style="thin", color=border_color),
+        top=Side(style="thin", color=border_color),
+        bottom=Side(style="thin", color=border_color),
+    )
+
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+    right_align = Alignment(horizontal="right", vertical="center")
+
+    # Product columns definition
+    prod_cols = [
+        ("#", 5),
+        ("Part Code", 16),
+        ("Description", 30),
+        ("HSN Code", 12),
+        ("Category", 15),
+        ("Qty", 8),
+        ("Currency", 10),
+        ("Unit Price", 14),
+        ("Subtotal", 14),
+        ("Other Charges", 14),
+        ("GST %", 8),
+        ("GST Amount", 12),
+        ("Final Total", 14),
+        ("Dispatched", 12),
+        ("Short Closed", 12),
+        ("Remaining", 12),
+    ]
+
+    num_cols = len(prod_cols)
+
+    # Set column widths
+    for ci, (_, w) in enumerate(prod_cols, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    row = 1
+
+    # --- Title ---
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=num_cols)
+    cell = ws.cell(row=row, column=1)
+    filter_label = ""
+    if delivery_date:
+        try:
+            dd = datetime.strptime(delivery_date, "%Y-%m-%d")
+            filter_label = f" — Delivery On/Before {dd.strftime('%d-%m-%Y')}"
+        except ValueError:
+            filter_label = f" — Delivery On/Before {delivery_date}"
+    cell.value = f"PURCHASE ORDERS REPORT{filter_label}"
+    cell.font = title_font
+    cell.fill = title_fill
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 36
+
+    row += 1
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=num_cols)
+    cell = ws.cell(row=row, column=1)
+    cell.value = f"Generated: {datetime.now().strftime('%d-%m-%Y %I:%M %p')}   |   Orders: {len(filtered)}   |   Items: {sum(g['items_count'] for g in filtered)}"
+    cell.font = subtitle_font
+    cell.fill = PatternFill(start_color="2C3750", end_color="2C3750", fill_type="solid")
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 22
+
+    row += 1  # blank spacer
+
+    # --- Each Order ---
+    for g_idx, group in enumerate(filtered):
+        row += 1
+
+        # Order header bar (dark background, merged)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=num_cols)
+        cell = ws.cell(row=row, column=1)
+        cell.value = f"  ORDER: {group['order_number']}   |   Purchase ID: {group['purchase_id']}"
+        cell.font = order_header_font
+        cell.fill = order_header_fill
+        cell.alignment = left_align
+        ws.row_dimensions[row].height = 28
+
+        # Order details — 2 rows of key-value pairs
+        row += 1
+        details_fill = PatternFill(start_color=light_blue, end_color=light_blue, fill_type="solid")
+        detail_pairs_row1 = [
+            ("Placed By:", group["order_placed_by"] or "-"),
+            ("Supplier:", group["supplier_name"] or "-"),
+            ("Order Date:", group["order_date"].strftime("%d-%m-%Y") if group["order_date"] else "-"),
+            ("Delivery Date:", group["delivery_date"].strftime("%d-%m-%Y") if group["delivery_date"] else "-"),
+        ]
+        col = 1
+        for label, val in detail_pairs_row1:
+            c1 = ws.cell(row=row, column=col)
+            c1.value = label
+            c1.font = order_label_font
+            c1.fill = details_fill
+            c1.alignment = right_align
+            c2 = ws.cell(row=row, column=col + 1)
+            c2.value = val
+            c2.font = order_value_font
+            c2.fill = details_fill
+            c2.alignment = left_align
+            col += 2
+        for c in range(col, num_cols + 1):
+            ws.cell(row=row, column=c).fill = details_fill
+
+        row += 1
+        detail_pairs_row2 = [
+            ("Status:", (group["status"] or "open").upper()),
+            ("Total Value:", f"Rs.{group['total_value']:,.2f}"),
+            ("Items:", str(group["items_count"])),
+            ("Currency:", group["price_currency"] or "INR"),
+        ]
+        col = 1
+        for label, val in detail_pairs_row2:
+            c1 = ws.cell(row=row, column=col)
+            c1.value = label
+            c1.font = order_label_font
+            c1.fill = details_fill
+            c1.alignment = right_align
+            c2 = ws.cell(row=row, column=col + 1)
+            c2.value = val
+            c2.font = order_value_font
+            c2.fill = details_fill
+            c2.alignment = left_align
+            col += 2
+        for c in range(col, num_cols + 1):
+            ws.cell(row=row, column=c).fill = details_fill
+
+        # Product header row
+        row += 1
+        for ci, (header, _) in enumerate(prod_cols, 1):
+            cell = ws.cell(row=row, column=ci)
+            cell.value = header
+            cell.font = product_header_font
+            cell.fill = product_header_fill
+            cell.alignment = center_align
+            cell.border = thin_border
+        ws.row_dimensions[row].height = 22
+
+        # Product rows
+        for idx, item in enumerate(group["items"]):
+            row += 1
+            dispatched = item.dispatched_quantity or 0
+            short_closed_qty = item.short_closed_quantity or 0
+            remaining = (item.quantity or 0) - dispatched - short_closed_qty
+            if remaining < 0:
+                remaining = 0
+
+            values = [
+                idx + 1,
+                item.part_code or "-",
+                item.item_description or "-",
+                item.hsn_code or "-",
+                item.category_name or "-",
+                item.quantity or 0,
+                item.price_currency or "INR",
+                round(item.unit_price or 0, 6),
+                round(item.subtotal or 0, 2),
+                round(item.other_charges or 0, 2),
+                item.gst_percentage or 0,
+                round(item.gst_amount or 0, 2),
+                round(item.final_total or 0, 2),
+                dispatched,
+                short_closed_qty,
+                remaining,
+            ]
+
+            row_fill = product_alt_fill if idx % 2 == 1 else product_white_fill
+            for ci, val in enumerate(values, 1):
+                cell = ws.cell(row=row, column=ci)
+                cell.value = val
+                cell.font = product_font
+                cell.fill = row_fill
+                cell.border = thin_border
+                if isinstance(val, (int, float)):
+                    cell.alignment = right_align
+                    if ci >= 8:
+                        cell.number_format = '#,##0.00'
+                else:
+                    cell.alignment = left_align
+
+            ws.cell(row=row, column=1).alignment = center_align
+
+        # Blank separator row
+        row += 1
+
+    # --- Summary Section ---
+    row += 1
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=num_cols)
+    cell = ws.cell(row=row, column=1)
+    cell.value = "SUMMARY"
+    cell.font = summary_header_font
+    cell.fill = summary_fill
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 28
+
+    summary_data = [
+        ("Total Orders:", len(filtered)),
+        ("Total Items:", sum(g["items_count"] for g in filtered)),
+        ("Total Value:", f"Rs.{sum(g['total_value'] for g in filtered):,.2f}"),
+    ]
+    for label, val in summary_data:
+        row += 1
+        c1 = ws.cell(row=row, column=1)
+        c1.value = label
+        c1.font = summary_label_font
+        c1.alignment = right_align
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
+        c2 = ws.cell(row=row, column=3)
+        c2.value = val
+        c2.font = summary_value_font
+        c2.alignment = left_align
+
+    # --- Write to buffer ---
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    # File name with proper date format (dd-mm-yyyy)
+    if delivery_date:
+        try:
+            dd = datetime.strptime(delivery_date, "%Y-%m-%d")
+            date_str = dd.strftime("%d-%m-%Y")
+        except ValueError:
+            date_str = delivery_date
+    else:
+        date_str = datetime.now().strftime("%d-%m-%Y")
+    filename = f"Purchase_Orders_{date_str}.xlsx"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
 @router.get("/purchase-orders/{order_id}")
 def get_purchase_order(order_id: int, db: Session = Depends(get_db)):
     """Get a specific purchase order by ID."""
@@ -1125,6 +1468,8 @@ def short_close_purchase_order_items(data: dict, db: Session = Depends(get_db)):
     
     db.commit()
     return {"success": True, "updated": updated, "message": f"{updated} item(s) short-closed successfully"}
+
+
 
 
 # =============================================================================
