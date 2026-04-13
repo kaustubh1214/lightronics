@@ -206,8 +206,16 @@
                         <h1>Purchase Orders</h1>
                         <p class="subtitle">Manage procurement and supplier orders</p>
                     </div>
-                    <div class="header-right">
-
+                    <div class="header-right" style="display: flex; gap: 10px;">
+                        <button class="btn" id="import-excel-btn" onclick="openImportModal()"
+                            style="background: linear-gradient(135deg, #059669, #10b981); color: white; border: none; display: flex; align-items: center; gap: 6px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            Import Excel
+                        </button>
                         <button class="btn btn-primary" id="add-purchase-order-btn" onclick="openPurchaseModal()">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M12 5v14M5 12h14" />
@@ -767,6 +775,175 @@
                                 <path d="M5 12h14M12 5l7 7-7 7" />
                             </svg>
                             Dispatch
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- EXCEL IMPORT MODAL -->
+            <div id="import-modal-overlay" class="modal-overlay" style="z-index: 2200;">
+                <div class="modal modal-content" style="max-width: 680px; width: 95%; padding: 0; overflow: hidden;">
+                    <!-- Modal Header -->
+                    <div style="background: linear-gradient(135deg, #059669, #10b981); padding: 20px 24px; color: white;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                    <polyline points="10 9 9 9 8 9"/>
+                                </svg>
+                                <div>
+                                    <h2 style="margin: 0; font-size: 1.2rem; font-weight: 700;">Import Purchase Orders</h2>
+                                    <p style="margin: 2px 0 0; font-size: 0.82rem; opacity: 0.85;">Upload Excel (.xlsx) or CSV file</p>
+                                </div>
+                            </div>
+                            <button onclick="closeImportModal()"
+                                style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center;">&times;</button>
+                        </div>
+                    </div>
+
+                    <!-- Modal Body -->
+                    <div style="padding: 24px; max-height: 65vh; overflow-y: auto;">
+                        <!-- Download Template Link -->
+                        <div style="background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08)); border: 1px solid rgba(99,102,241,0.18); border-radius: 10px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4M12 8h.01"/>
+                            </svg>
+                            <span style="font-size: 0.88rem; color: var(--text-secondary);">
+                                Need the template?
+                                <a href="/api/purchase-orders/import-template" download
+                                    style="color: #6366f1; font-weight: 600; text-decoration: none;">
+                                    Download blank Excel template
+                                </a>
+                            </span>
+                        </div>
+
+                        <!-- Drop Zone -->
+                        <div id="import-drop-zone" onclick="document.getElementById('import-file-input').click()"
+                            style="border: 2px dashed var(--border-color); border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all 0.3s ease; background: var(--bg-secondary);">
+                            <input type="file" id="import-file-input" accept=".xlsx,.xls,.csv" style="display: none;"
+                                onchange="handleImportFileSelect(event)">
+                            <div id="import-drop-content">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" style="margin-bottom: 12px;">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                <p style="margin: 0; font-size: 1rem; font-weight: 600; color: var(--text-primary);">Drop your file here</p>
+                                <p style="margin: 6px 0 0; font-size: 0.85rem; color: var(--text-muted);">or click to browse • .xlsx, .xls, .csv</p>
+                            </div>
+                            <!-- File Preview (hidden initially) -->
+                            <div id="import-file-preview" style="display: none;">
+                                <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+                                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    <div style="text-align: left;">
+                                        <p id="import-file-name" style="margin: 0; font-weight: 600; color: var(--text-primary); font-size: 0.95rem;"></p>
+                                        <p id="import-file-size" style="margin: 2px 0 0; font-size: 0.82rem; color: var(--text-muted);"></p>
+                                    </div>
+                                    <button onclick="clearImportFile(event)"
+                                        style="background: rgba(239,68,68,0.1); border: none; color: #ef4444; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 1.1rem; margin-left: 8px;">&times;</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Import Settings -->
+                            <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                                <div class="form-group">
+                                    <label for="import-placed-by" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Order Placed By *</label>
+                                    <input type="text" id="import-placed-by" value="Import" placeholder="Name"
+                                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary);">
+                                </div>
+                                <div class="form-group">
+                                    <label for="import-currency" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Currency *</label>
+                                    <select id="import-currency" onchange="toggleImportGST()"
+                                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary);">
+                                        <option value="INR" selected>₹ INR - Indian Rupee</option>
+                                        <option value="USD">$ USD - US Dollar</option>
+                                        <option value="RMB">¥ RMB - Chinese Yuan</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="import-delivery-date" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Expected Delivery</label>
+                                    <input type="date" id="import-delivery-date"
+                                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary);">
+                                </div>
+                                <div class="form-group">
+                                    <label for="import-delivery-type" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Delivery Type</label>
+                                    <select id="import-delivery-type"
+                                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary);">
+                                        <option value="sea">Sea Freight</option>
+                                        <option value="air">Air Freight</option>
+                                        <option value="courier">Courier</option>
+                                        <option value="local">Local Transport</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="import-other-charges" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Other Charges</label>
+                                    <input type="number" id="import-other-charges" value="0" step="0.01"
+                                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary);">
+                                </div>
+                                <div class="form-group" style="grid-column: 1 / -1;">
+                                    <label for="import-remarks" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">Remarks</label>
+                                    <textarea id="import-remarks" placeholder="Optional comments for imported orders" rows="2"
+                                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary); resize: vertical;"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- GST Section -->
+                            <div id="import-gst-section" style="margin-top: 14px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.06), rgba(251, 191, 36, 0.06)); padding: 14px; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.15);">
+                                <h4 style="margin: 0 0 10px 0; font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                                    </svg>
+                                    GST Configuration (INR Only)
+                                </h4>
+                                <div style="display: flex; gap: 16px; align-items: center;">
+                                    <div class="form-group" style="margin: 0;">
+                                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                                            <input type="checkbox" id="import-gst-applicable" checked style="width: 16px; height: 16px;">
+                                            GST Applicable
+                                        </label>
+                                    </div>
+                                    <div class="form-group" style="margin: 0; flex: 1;">
+                                        <label for="import-gst-percentage" style="font-size: 0.8rem; margin-bottom: 4px; display: block;">GST %</label>
+                                        <input type="number" id="import-gst-percentage" value="18" step="0.5" min="0" max="100"
+                                            style="width: 100%; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;">
+                                    </div>
+                                </div>
+                            </div>
+
+                        <!-- Progress Bar (hidden) -->
+                        <div id="import-progress-section" style="display: none; margin-top: 20px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                                <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Importing...</span>
+                                <span id="import-progress-text" style="font-size: 0.85rem; color: var(--text-muted);">0%</span>
+                            </div>
+                            <div style="background: var(--bg-secondary); border-radius: 8px; height: 8px; overflow: hidden;">
+                                <div id="import-progress-bar"
+                                    style="height: 100%; width: 0%; background: linear-gradient(90deg, #059669, #10b981); border-radius: 8px; transition: width 0.5s ease;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Result Section (hidden) -->
+                        <div id="import-result-section" style="display: none; margin-top: 20px;"></div>
+                    </div>
+
+                    <!-- Modal Footer -->
+                    <div style="padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; background: var(--bg-secondary);">
+                        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+                        <button class="btn btn-primary" id="import-submit-btn" onclick="submitImport()" disabled
+                            style="background: linear-gradient(135deg, #059669, #10b981); border: none; display: flex; align-items: center; gap: 6px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            Import Data
                         </button>
                     </div>
                 </div>
@@ -1619,7 +1796,7 @@
     <!-- Choices.js for searchable dropdowns -->
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js?v=5"></script>
     <script src="/static/app.js?v=17"></script>
-    <script src="/static/purchase.js?v=108"></script>
+    <script src="/static/purchase.js?v=206"></script>
     <script src="/static/styles.css?v=10"></script>
     <script src="/static/dispatch.js?v=120"></script>
 </body>

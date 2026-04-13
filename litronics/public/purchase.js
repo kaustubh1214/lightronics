@@ -17,6 +17,7 @@ let currentBatchItems = [];
 let activeTab = 'orders';
 let selectedOrderCurrency = 'INR'; // Order-level currency
 let productSelectionDone = false; // Track if Done was clicked
+let editingPurchaseId = null; // Track which purchase order is being edited (null = creating new)
 
 // Choices.js instances
 let productChoices = null;
@@ -233,6 +234,7 @@ function renderGroupedOrders() {
         <tr>
             <th>Order # / Purchase ID</th>
             <th>Placed By</th>
+            <th>Del. Type</th>
             <th>Date</th>
             <th>Supplier</th>
             <th>Items</th>
@@ -264,6 +266,8 @@ function renderGroupedOrders() {
                 order_number: item.order_number,
                 order_placed_by: item.order_placed_by,
                 order_date: item.order_date,
+                delivery_date: item.delivery_date,
+                delivery_type: item.delivery_type,
                 delivery_date: item.delivery_date,
                 supplier_name: item.supplier_name,
                 price_currency: item.price_currency,
@@ -343,7 +347,7 @@ function renderGroupedOrders() {
 
     tbody.innerHTML = '';
     if (sortedGroups.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 30px;">No orders found matching filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding: 30px;">No orders found matching filters.</td></tr>';
         return;
     }
 
@@ -353,6 +357,11 @@ function renderGroupedOrders() {
         tr.style.animationDelay = `${index * 0.05}s`;
 
         const date = group.order_date ? new Date(group.order_date).toLocaleDateString('en-IN') : '-';
+        const delivery_type = group.delivery_type ? group.delivery_type.charAt(0).toUpperCase() + group.delivery_type.slice(1) : '-';
+        
+        let currencySymbol = '₹';
+        if (group.price_currency === 'USD') currencySymbol = '$';
+        if (group.price_currency === 'RMB') currencySymbol = '¥';
 
         tr.innerHTML = `
             <td>
@@ -360,10 +369,11 @@ function renderGroupedOrders() {
                 <small class="text-muted" style="color:var(--text-muted)">${group.id}</small>
             </td>
             <td>${group.order_placed_by}</td>
+            <td>${delivery_type}</td>
             <td>${date}</td>
             <td>${group.supplier_name || '-'}</td>
             <td>${group.items_count}</td>
-            <td style="font-weight:600;">₹${group.total_value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+            <td style="font-weight:600;">${currencySymbol}${group.total_value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
             <td><span class="status-badge status-${group.status}">${group.status?.toUpperCase() || 'OPEN'}</span></td>
             <td>
                 <div class="table-actions-cell">
@@ -376,6 +386,12 @@ function renderGroupedOrders() {
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                    </button>
+                    <button class="action-btn" onclick="deletePurchaseBatch('${group.id}')" title="Delete Order" style="color: #ef4444;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                         </svg>
                     </button>
                     ${['open', 'confirmed', 'ready_to_dispatch', 'partially_dispatched'].includes(group.status) ? `
@@ -1102,13 +1118,26 @@ async function submitBatchOrder() {
         items: itemsWithCharges
     };
 
-    const result = await fetchPurchaseAPI('/purchase-orders/batch', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-    });
+    let result;
+    console.log('[submitBatchOrder] editingPurchaseId =', editingPurchaseId);
+    if (editingPurchaseId) {
+        // --- UPDATE existing order (PUT) ---
+        console.log('[submitBatchOrder] Using PUT to update:', editingPurchaseId);
+        result = await fetchPurchaseAPI(`/purchase-orders/batch/${encodeURIComponent(editingPurchaseId)}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+    } else {
+        // --- CREATE new order (POST) ---
+        result = await fetchPurchaseAPI('/purchase-orders/batch', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    }
 
     if (result.success) {
-        showPurchaseToast('Order saved successfully!', 'success');
+        showPurchaseToast(editingPurchaseId ? 'Order updated successfully!' : 'Order saved successfully!', 'success');
+        editingPurchaseId = null; // Clear edit state
         closePurchaseModal();
         loadPurchaseOrders();
     } else {
@@ -1161,6 +1190,7 @@ window.openPurchaseModal = function (isEdit = false) {
         purchaseFormView.style.display = 'block';
 
         if (!isEdit) {
+            editingPurchaseId = null; // Reset edit tracking for new orders
             loadProductsForPurchase();
             loadSuppliersForPurchase();
             currentBatchItems = [];
@@ -1200,6 +1230,7 @@ window.openPurchaseModal = function (isEdit = false) {
 }
 
 window.closePurchaseModal = function () {
+    editingPurchaseId = null; // Clear edit tracking
     const purchaseView = document.getElementById('purchase-view');
     const purchaseFormView = document.getElementById('purchase-form-view');
     if (purchaseView && purchaseFormView) {
@@ -1213,6 +1244,19 @@ window.editPurchaseOrder = function (purchaseId) {
     if (orders.length === 0) return;
 
     const first = orders[0];
+
+    // --- Guard: Block editing for dispatched or short_closed orders ---
+    const hasDispatched = orders.some(o => (parseInt(o.dispatched_quantity) || 0) > 0);
+    const hasShortClosed = orders.some(o => (parseInt(o.short_closed_quantity) || 0) > 0);
+    const hasTerminalStatus = orders.some(o => ['dispatched', 'short_closed'].includes(o.pi_status));
+
+    if (hasDispatched || hasShortClosed || hasTerminalStatus) {
+        showPurchaseToast('Cannot edit this order — it has dispatched or short-closed items. Create a new order instead.', 'error');
+        return;
+    }
+
+    // Set the editing purchase ID so submitBatchOrder knows to update
+    editingPurchaseId = purchaseId;
 
     // Open Modal in Edit Mode (prevents clearing)
     openPurchaseModal(true);
@@ -1291,6 +1335,27 @@ window.editPurchaseOrder = function (purchaseId) {
     updateOrderSummary();
     showPurchaseToast(`Loaded ${currentBatchItems.length} items for editing. Click on Edit to modify each item.`, 'info');
 }
+
+window.deletePurchaseBatch = async function (purchaseId) {
+    if (!confirm('Are you sure you want to permanently delete this Purchase Order and all its items?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/purchase-orders/batch/${purchaseId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || 'Failed to delete order');
+        }
+        
+        showPurchaseToast('Purchase order deleted successfully', 'success');
+        loadPurchaseOrders();
+    } catch (err) {
+        console.error(err);
+        showPurchaseToast(err.message, 'error');
+    }
+};
 
 window.openPurchaseModalWithItems = function (purchaseId) {
     switchPurchaseTab('items');
@@ -1660,3 +1725,311 @@ function setupPaymentFormListener() {
         };
     }
 }
+
+// =============================================================================
+// Excel/CSV Import Functions
+// =============================================================================
+
+let importSelectedFile = null;
+
+window.openImportModal = function () {
+    const overlay = document.getElementById('import-modal-overlay');
+    if (overlay) {
+        overlay.classList.add('active');
+        // Reset state
+        importSelectedFile = null;
+        const fileInput = document.getElementById('import-file-input');
+        if (fileInput) fileInput.value = '';
+        const dropContent = document.getElementById('import-drop-content');
+        const filePreview = document.getElementById('import-file-preview');
+        if (dropContent) dropContent.style.display = 'block';
+        if (filePreview) filePreview.style.display = 'none';
+        const submitBtn = document.getElementById('import-submit-btn');
+        if (submitBtn) submitBtn.disabled = true;
+        // Reset progress & results
+        const progressSection = document.getElementById('import-progress-section');
+        if (progressSection) progressSection.style.display = 'none';
+        const resultSection = document.getElementById('import-result-section');
+        if (resultSection) {
+            resultSection.style.display = 'none';
+            resultSection.innerHTML = '';
+        }
+    }
+};
+
+window.closeImportModal = function () {
+    const overlay = document.getElementById('import-modal-overlay');
+    if (overlay) overlay.classList.remove('active');
+    importSelectedFile = null;
+};
+
+window.toggleImportGST = function() {
+    const currency = document.getElementById('import-currency')?.value;
+    const gstSection = document.getElementById('import-gst-section');
+    if (gstSection) {
+        gstSection.style.display = currency === 'INR' ? 'block' : 'none';
+    }
+};
+
+window.handleImportFileSelect = function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const validExts = ['.xlsx', '.xls', '.csv'];
+    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!validExts.includes(ext)) {
+        showPurchaseToast('Invalid file type. Please upload .xlsx, .xls, or .csv', 'error');
+        return;
+    }
+
+    importSelectedFile = file;
+
+    // Show preview
+    const dropContent = document.getElementById('import-drop-content');
+    const filePreview = document.getElementById('import-file-preview');
+    const fileName = document.getElementById('import-file-name');
+    const fileSize = document.getElementById('import-file-size');
+
+    if (dropContent) dropContent.style.display = 'none';
+    if (filePreview) filePreview.style.display = 'block';
+    if (fileName) fileName.textContent = file.name;
+    if (fileSize) {
+        const sizeKB = (file.size / 1024).toFixed(1);
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        fileSize.textContent = file.size > 1048576 ? `${sizeMB} MB` : `${sizeKB} KB`;
+    }
+
+    // Enable submit
+    const submitBtn = document.getElementById('import-submit-btn');
+    if (submitBtn) submitBtn.disabled = false;
+
+    // Reset result section
+    const resultSection = document.getElementById('import-result-section');
+    if (resultSection) {
+        resultSection.style.display = 'none';
+        resultSection.innerHTML = '';
+    }
+};
+
+window.clearImportFile = function (event) {
+    if (event) event.stopPropagation();
+    importSelectedFile = null;
+    const fileInput = document.getElementById('import-file-input');
+    if (fileInput) fileInput.value = '';
+    const dropContent = document.getElementById('import-drop-content');
+    const filePreview = document.getElementById('import-file-preview');
+    if (dropContent) dropContent.style.display = 'block';
+    if (filePreview) filePreview.style.display = 'none';
+    const submitBtn = document.getElementById('import-submit-btn');
+    if (submitBtn) submitBtn.disabled = true;
+};
+
+window.submitImport = async function () {
+    if (!importSelectedFile) {
+        showPurchaseToast('Please select a file first.', 'error');
+        return;
+    }
+
+    const placedBy = document.getElementById('import-placed-by')?.value || 'Import';
+    const currency = document.getElementById('import-currency')?.value || 'INR';
+    const deliveryType = document.getElementById('import-delivery-type')?.value || 'sea';
+    const deliveryDate = document.getElementById('import-delivery-date')?.value || '';
+    const otherCharges = document.getElementById('import-other-charges')?.value || '0';
+    const remarks = document.getElementById('import-remarks')?.value || '';
+
+    // Show progress
+    const progressSection = document.getElementById('import-progress-section');
+    const progressBar = document.getElementById('import-progress-bar');
+    const progressText = document.getElementById('import-progress-text');
+    const submitBtn = document.getElementById('import-submit-btn');
+
+    if (progressSection) progressSection.style.display = 'block';
+    if (progressBar) progressBar.style.width = '20%';
+    if (progressText) progressText.textContent = 'Uploading...';
+    if (submitBtn) submitBtn.disabled = true;
+
+    // Build FormData
+    const formData = new FormData();
+    formData.append('file', importSelectedFile);
+    formData.append('order_placed_by', placedBy);
+    formData.append('currency', currency);
+    formData.append('delivery_type', deliveryType);
+    if(deliveryDate) formData.append('delivery_date', deliveryDate);
+    formData.append('other_charges', otherCharges);
+    formData.append('remarks', remarks);
+
+    // GST Parameters
+    if (currency === 'INR') {
+        const gstApplicable = document.getElementById('import-gst-applicable')?.checked || false;
+        const gstPct = document.getElementById('import-gst-percentage')?.value || '18';
+        formData.append('gst_applicable', gstApplicable.toString());
+        formData.append('gst_percentage', gstPct);
+    } else {
+        formData.append('gst_applicable', 'false');
+        formData.append('gst_percentage', '0');
+    }
+
+    try {
+        if (progressBar) progressBar.style.width = '50%';
+        if (progressText) progressText.textContent = 'Processing...';
+
+        const response = await fetch(`${API_BASE}/purchase-orders/import-excel`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (progressBar) progressBar.style.width = '80%';
+        if (progressText) progressText.textContent = 'Finalizing...';
+
+        const data = await response.json().catch(() => ({}));
+
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressText) progressText.textContent = '100%';
+
+        if (response.ok && data.success) {
+            closeImportModal();
+            showImportSuccessOverlay(data.orders_created || 0, data.items_created || 0, data.rows_skipped || 0);
+            
+            // Refresh orders list after a short delay
+            setTimeout(() => {
+                loadPurchaseOrders();
+            }, 500);
+
+        } else {
+            // Error result
+            const errorMsg = data.detail || data.message || 'Import failed. Please check your file format.';
+            if (resultSection) {
+                resultSection.style.display = 'block';
+                resultSection.innerHTML = `
+                    <div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 10px; padding: 16px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="15" y1="9" x2="9" y2="15"/>
+                                <line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            <div>
+                                <div style="font-weight: 700; color: #ef4444; font-size: 0.95rem;">Import Failed</div>
+                                <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">${errorMsg}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            showPurchaseToast(errorMsg, 'error');
+        }
+
+    } catch (err) {
+        console.error('Import error:', err);
+        if (resultSection) {
+            resultSection.style.display = 'block';
+            resultSection.innerHTML = `
+                <div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 10px; padding: 16px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="15" y1="9" x2="9" y2="15"/>
+                            <line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                        <div>
+                            <div style="font-weight: 700; color: #ef4444;">Connection Error</div>
+                            <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 2px;">${err.message}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        showPurchaseToast('Network error during import.', 'error');
+    } finally {
+        // Hide progress after a moment
+        setTimeout(() => {
+            if (progressSection) progressSection.style.display = 'none';
+            if (submitBtn) submitBtn.disabled = false;
+        }, 1500);
+    }
+};
+
+// Drag & drop support for import zone
+document.addEventListener('DOMContentLoaded', () => {
+    const dropZone = document.getElementById('import-drop-zone');
+    if (!dropZone) return;
+
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropZone.addEventListener(evt, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.borderColor = '#10b981';
+            dropZone.style.background = 'rgba(16,185,129,0.06)';
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.borderColor = '';
+            dropZone.style.background = '';
+        });
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+            const fileInput = document.getElementById('import-file-input');
+            // Create a new DataTransfer to set files on input
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            if (fileInput) {
+                fileInput.files = dt.files;
+                handleImportFileSelect({ target: fileInput });
+            }
+        }
+    });
+
+});
+
+// Add custom success pop-up generator for Imports
+window.showImportSuccessOverlay = function(orders, items, skipped) {
+    let overlay = document.getElementById('import-custom-success-popup');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'import-custom-success-popup';
+        overlay.className = 'modal-overlay';
+        overlay.style.zIndex = '3000';
+        overlay.style.background = 'rgba(15, 23, 42, 0.7)';
+        overlay.style.backdropFilter = 'blur(4px)';
+        document.body.appendChild(overlay);
+    }
+    
+    overlay.innerHTML = `
+        <div class="modal animate-in" style="max-width: 450px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 30px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+            <div style="width: 72px; height: 72px; background: rgba(16, 185, 129, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+            </div>
+            
+            <h2 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 1.5rem;">Import Successful!</h2>
+            <p style="margin: 0 0 24px 0; color: var(--text-muted); font-size: 0.95rem;">Your Excel data has been fully synced into the DB.</p>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 24px;">
+                <div style="background: var(--bg-secondary); border-radius: 10px; padding: 15px;">
+                    <div style="font-size: 1.6rem; font-weight: 700; color: var(--text-primary); line-height: 1;">${orders}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Orders Created</div>
+                </div>
+                <div style="background: var(--bg-secondary); border-radius: 10px; padding: 15px;">
+                    <div style="font-size: 1.6rem; font-weight: 700; color: var(--text-primary); line-height: 1;">${items}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Items Parsed</div>
+                </div>
+            </div>
+            
+            ${skipped > 0 ? `<div style="color: #f59e0b; font-size: 0.85rem; margin-bottom: 20px;">Note: ${skipped} invalid row(s) were skipped.</div>` : ''}
+            
+            <button onclick="document.getElementById('import-custom-success-popup').classList.remove('active')" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 1rem;">Continue Working</button>
+        </div>
+    `;
+    
+    // Force a micro-delay to trigger the CSS transition
+    setTimeout(() => overlay.classList.add('active'), 10);
+};

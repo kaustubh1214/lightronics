@@ -4,7 +4,7 @@ FastAPI endpoint definitions
 """
 
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -1258,6 +1258,177 @@ def create_purchase_order_batch(batch: PurchaseBatchCreate, db: Session = Depend
     }
 
 
+@router.put("/purchase-orders/batch/{purchase_id}")
+def update_purchase_order_batch(purchase_id: str, batch: PurchaseBatchCreate, db: Session = Depends(get_db)):
+    """Update an existing batch purchase order.
+    
+    Rules:
+    - If ANY item in the batch has been dispatched or short_closed, reject the entire update.
+    - Soft-delete old items and create new ones with the same purchase_id + order_number.
+    """
+    # Find all existing items for this purchase_id
+    existing_items = db.query(PurchaseOrder).filter(
+        PurchaseOrder.purchase_id == purchase_id,
+        PurchaseOrder.is_active == True
+    ).all()
+
+    if not existing_items:
+        raise HTTPException(status_code=404, detail=f"No active orders found for purchase ID: {purchase_id}")
+
+    # --- Guard: Block edits if any item is dispatched or short_closed ---
+    for item in existing_items:
+        dispatched = item.dispatched_quantity or 0
+        short_closed_qty = item.short_closed_quantity or 0
+        if dispatched > 0 or short_closed_qty > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot edit this order — item '{item.part_code}' has dispatched ({dispatched}) or short-closed ({short_closed_qty}) quantities. Create a new order instead."
+            )
+        if item.pi_status in ("dispatched", "short_closed"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot edit this order — item '{item.part_code}' has status '{item.pi_status}'. Create a new order instead."
+            )
+
+    # Preserve the original purchase_id and order_number
+    order_number = existing_items[0].order_number
+
+    # Soft-delete old items
+    for item in existing_items:
+        item.is_active = False
+    db.flush()
+
+    # Common fields
+    order_date = existing_items[0].order_date or datetime.now()
+    delivery_date = None
+    if batch.delivery_date:
+        try:
+            delivery_date = datetime.fromisoformat(batch.delivery_date.replace('Z', '+00:00'))
+        except:
+            pass
+
+    created_items = []
+
+    try:
+        for bi in batch.items:
+            part_code = bi.part_code
+            item_description = bi.item_description
+            hsn_code = bi.hsn_code
+            category_name = bi.category_name
+            price_usd = bi.price_usd
+            price_inr = bi.price_inr
+            price_rmb = bi.price_rmb
+
+            if bi.product_id:
+                product = db.query(Product).filter(Product.id == bi.product_id).first()
+                if product:
+                    part_code = product.part_code
+                    item_description = product.description
+                    hsn_code = product.hsn.hsn_code if product.hsn else None
+                    category_name = product.category.category_name if product.category else None
+                    if not price_usd: price_usd = product.unit_price_usd
+                    if not price_inr: price_inr = product.unit_price_inr
+                    if not price_rmb: price_rmb = product.unit_price_rmb
+
+            supplier_id = bi.supplier_id if hasattr(bi, 'supplier_id') else batch.supplier_id
+            supplier_name = bi.supplier_name if hasattr(bi, 'supplier_name') else batch.supplier_name
+
+            if not supplier_name and batch.supplier_id:
+                sup = db.query(Supplier).filter(Supplier.id == batch.supplier_id).first()
+                if sup: supplier_name = sup.supplier_name
+
+            unit_price = bi.unit_price or 0
+            quantity = bi.quantity or 1
+            order_currency = batch.order_currency or bi.price_currency or "INR"
+
+            subtotal = unit_price * quantity
+            other_charges = bi.other_charges or 0
+            total = subtotal + other_charges
+
+            gst_amount = 0
+            if bi.gst_applicable:
+                gst_percentage = bi.gst_percentage or 18
+                gst_amount = total * (gst_percentage / 100)
+            else:
+                gst_percentage = 0
+
+            final_total = total + gst_amount
+
+            db_order = PurchaseOrder(
+                purchase_id=purchase_id,  # Keep the SAME purchase_id
+                order_number=order_number,  # Keep the SAME order_number
+                order_placed_by=batch.order_placed_by,
+                order_date=order_date,
+                product_id=bi.product_id,
+                part_code=part_code,
+                item_description=item_description,
+                hsn_code=hsn_code,
+                category_name=category_name,
+                supplier_id=batch.supplier_id,
+                supplier_name=supplier_name,
+                quantity=quantity,
+                price_currency=order_currency,
+                price_usd=price_usd,
+                price_inr=price_inr,
+                price_rmb=price_rmb,
+                unit_price=unit_price,
+                subtotal=subtotal,
+                other_charges=other_charges,
+                total=total,
+                gst_applicable=bi.gst_applicable,
+                gst_percentage=gst_percentage,
+                gst_amount=gst_amount,
+                final_total=final_total,
+                delivery_date=delivery_date,
+                delivery_type=batch.delivery_type,
+                pi_status="open",
+                remarks=bi.remarks or batch.global_remarks,
+            )
+            db.add(db_order)
+            created_items.append(db_order)
+
+        db.commit()
+        if created_items:
+            db.refresh(created_items[0])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating batch order: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating batch: {str(e)}")
+
+    return {
+        "success": True,
+        "purchase_id": purchase_id,
+        "order_number": order_number,
+        "items_count": len(created_items),
+        "message": "Purchase order updated successfully"
+    }
+
+@router.delete("/purchase-orders/batch/{purchase_id}")
+def delete_purchase_order_batch(purchase_id: str, db: Session = Depends(get_db)):
+    """Soft delete an entire purchase order batch by its purchase_id."""
+    items = db.query(PurchaseOrder).filter(
+        PurchaseOrder.purchase_id == purchase_id,
+        PurchaseOrder.is_active == True
+    ).all()
+    
+    if not items:
+        raise HTTPException(status_code=404, detail="Purchase order batch not found.")
+        
+    for item in items:
+        item.is_active = False
+        
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        
+    return {"success": True, "message": "Purchase order deleted successfully."}
+
+
 @router.put("/purchase-orders/{order_id}")
 def update_purchase_order(
     order_id: int,
@@ -2206,6 +2377,735 @@ def update_dispatch_status(dispatch_id: int, status: str, db: Session = Depends(
     db.commit()
     
     return {"success": True, "message": f"Status updated to '{status}'"}
+
+
+# =============================================================================
+# Purchase Order Import from Excel/CSV
+# =============================================================================
+
+@router.post("/purchase-orders/import-excel")
+async def import_purchase_orders_from_excel(
+    db: Session = Depends(get_db),
+    file: "UploadFile" = None,
+    order_placed_by: str = "Import",
+    delivery_type: str = "sea",
+    order_currency: str = "INR",
+):
+    """Import purchase orders from an Excel (.xlsx) or CSV file.
+
+    The file must follow the client's voucher sheet format with columns:
+        Voucher Date, Voucher Type Name, Voucher Number,
+        Buyer/Supplier - Address, Buyer/Supplier - Pincode,
+        Ledger Name, Ledger Amount, Ledger Amount Dr/Cr,
+        Item Name, Billed Quantity, Item Rate, Item Rate per,
+        Item Amount, Change Mode
+
+    Rows are grouped by Voucher Number into purchase-order batches.
+    Each row that has an Item Name becomes one PurchaseOrder line-item.
+    """
+    from fastapi import File, UploadFile, Form
+    import io, csv, traceback
+
+    # The function signature above uses string annotation for UploadFile so the
+    # router can register without import issues; FastAPI still resolves it.
+    # We re-import here explicitly for clarity.
+    if file is None:
+        raise HTTPException(status_code=400, detail="No file uploaded.")
+
+    filename = file.filename or ""
+    content = await file.read()
+
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # ------------------------------------------------------------------
+    # Parse into list-of-dicts
+    # ------------------------------------------------------------------
+    rows = []
+    try:
+        if filename.lower().endswith((".xlsx", ".xls")):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+            ws = wb.active
+            headers = [str(cell.value or "").strip() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                vals = [cell.value for cell in row]
+                if all(v is None for v in vals):
+                    continue
+                rows.append(dict(zip(headers, vals)))
+        elif filename.lower().endswith(".csv"):
+            text = content.decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(text))
+            rows = [r for r in reader]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type. Please upload .xlsx or .csv",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No data rows found in file.")
+
+    # ------------------------------------------------------------------
+    # Normalise column names (case-insensitive, strip whitespace)
+    # ------------------------------------------------------------------
+    def _col(row: dict, *candidates):
+        """Return value for the first matching column name (case-insensitive)."""
+        row_lower = {k.strip().lower(): v for k, v in row.items()}
+        for c in candidates:
+            val = row_lower.get(c.strip().lower())
+            if val is not None:
+                return val
+        return None
+
+    # ------------------------------------------------------------------
+    # Group rows by Voucher Number (= one purchase-order batch each)
+    # ------------------------------------------------------------------
+    from collections import OrderedDict
+
+    batches: dict = OrderedDict()
+    skipped_rows = 0
+
+    for idx, row in enumerate(rows, start=2):  # start=2 because row 1 is header
+        item_name = _col(row, "Item Name", "item_name", "ItemName", "item name")
+        if not item_name:
+            skipped_rows += 1
+            continue  # skip rows without an item
+
+        voucher_number = str(
+            _col(row, "Voucher Number", "voucher_number", "VoucherNumber", "voucher number") or f"IMP-{idx}"
+        ).strip()
+
+        if voucher_number not in batches:
+            batches[voucher_number] = {
+                "voucher_number": voucher_number,
+                "voucher_date": _col(row, "Voucher Date", "voucher_date", "VoucherDate", "voucher date"),
+                "supplier_name": _col(row, "Ledger Name", "ledger_name", "LedgerName", "ledger name"),
+                "supplier_address": _col(
+                    row, "Buyer/Supplier - Address", "buyer/supplier - address", "address"
+                ),
+                "items": [],
+            }
+
+        # Parse numeric values safely
+        def _num(val, default=0):
+            if val is None:
+                return default
+            try:
+                return float(str(val).replace(",", "").strip())
+            except (ValueError, TypeError):
+                return default
+
+        def _int_val(val, default=1):
+            n = _num(val, default)
+            return max(1, int(n))
+
+        billed_qty = _int_val(_col(row, "Billed Quantity", "billed_quantity", "BilledQuantity", "billed quantity", "Qty", "quantity"))
+        item_rate = _num(_col(row, "Item Rate", "item_rate", "ItemRate", "item rate", "Rate", "rate"))
+        item_amount = _num(_col(row, "Item Amount", "item_amount", "ItemAmount", "item amount", "Amount", "amount"))
+        ledger_amount = _num(_col(row, "Ledger Amount", "ledger_amount", "LedgerAmount", "ledger amount"))
+
+        # If item_amount is 0 but we have qty & rate, compute it
+        if item_amount == 0 and item_rate > 0 and billed_qty > 0:
+            item_amount = item_rate * billed_qty
+
+        # If item_rate is 0 but we have amount & qty, derive it
+        if item_rate == 0 and item_amount > 0 and billed_qty > 0:
+            item_rate = item_amount / billed_qty
+
+        batches[voucher_number]["items"].append({
+            "item_name": str(item_name).strip(),
+            "quantity": billed_qty,
+            "unit_price": item_rate,
+            "item_amount": item_amount,
+            "ledger_amount": ledger_amount,
+            "rate_per": _col(row, "Item Rate per", "item_rate_per", "ItemRatePer", "item rate per"),
+        })
+
+    if not batches:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid item rows found. Ensure the sheet has 'Item Name' column with data.",
+        )
+
+    # ------------------------------------------------------------------
+    # Create purchase orders in the database
+    # ------------------------------------------------------------------
+    conn = db.connection()
+    created_orders = []
+    errors = []
+
+    for voucher_num, batch_data in batches.items():
+        try:
+            purchase_id = _generate_purchase_id(conn)
+            order_number = _generate_order_number(conn)
+
+            # Parse voucher date
+            order_date = datetime.now()
+            vd = batch_data["voucher_date"]
+            if vd:
+                if isinstance(vd, datetime):
+                    order_date = vd
+                else:
+                    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%y", "%d/%m/%y"):
+                        try:
+                            order_date = datetime.strptime(str(vd).strip(), fmt)
+                            break
+                        except ValueError:
+                            continue
+
+            # Try to match supplier
+            supplier_name_raw = str(batch_data.get("supplier_name") or "").strip()
+            supplier_id = None
+            supplier_name = supplier_name_raw or "Imported Supplier"
+
+            if supplier_name_raw:
+                supplier = db.query(Supplier).filter(
+                    func.lower(Supplier.supplier_name) == supplier_name_raw.lower()
+                ).first()
+                if supplier:
+                    supplier_id = supplier.id
+                    supplier_name = supplier.supplier_name
+
+            for item_data in batch_data["items"]:
+                item_name = item_data["item_name"]
+                quantity = item_data["quantity"]
+                unit_price = item_data["unit_price"]
+
+                # Try to match product by part_code or description
+                product_id = None
+                part_code = item_name
+                item_description = item_name
+                hsn_code = None
+                category_name = None
+                price_usd = 0
+                price_inr = 0
+                price_rmb = 0
+
+                product = db.query(Product).filter(
+                    (func.lower(Product.part_code) == item_name.lower()) |
+                    (func.lower(Product.description) == item_name.lower())
+                ).first()
+
+                if product:
+                    product_id = product.id
+                    part_code = product.part_code
+                    item_description = product.description
+                    hsn_code = product.hsn.hsn_code if product.hsn else None
+                    category_name = product.category.category_name if product.category else None
+                    price_usd = product.unit_price_usd or 0
+                    price_inr = product.unit_price_inr or 0
+                    price_rmb = product.unit_price_rmb or 0
+
+                # Set prices based on order currency
+                if order_currency == "USD":
+                    price_usd = unit_price
+                elif order_currency == "RMB":
+                    price_rmb = unit_price
+                else:
+                    price_inr = unit_price
+
+                subtotal = unit_price * quantity
+                final_total = subtotal  # No GST/charges on import by default
+
+                db_order = PurchaseOrder(
+                    purchase_id=purchase_id,
+                    order_number=order_number,
+                    order_placed_by=order_placed_by or "Import",
+                    order_date=order_date,
+                    product_id=product_id,
+                    part_code=part_code,
+                    item_description=item_description,
+                    hsn_code=hsn_code,
+                    category_name=category_name,
+                    supplier_id=supplier_id,
+                    supplier_name=supplier_name,
+                    quantity=quantity,
+                    price_currency=order_currency,
+                    price_usd=price_usd,
+                    price_inr=price_inr,
+                    price_rmb=price_rmb,
+                    unit_price=unit_price,
+                    subtotal=subtotal,
+                    other_charges=0,
+                    total=subtotal,
+                    gst_applicable=False,
+                    gst_percentage=0,
+                    gst_amount=0,
+                    final_total=final_total,
+                    delivery_date=None,
+                    delivery_type=delivery_type,
+                    pi_status="open",
+                    remarks=f"Imported from {filename} | Voucher: {voucher_num}",
+                )
+                db.add(db_order)
+
+            created_orders.append({
+                "purchase_id": purchase_id,
+                "order_number": order_number,
+                "voucher_number": voucher_num,
+                "supplier": supplier_name,
+                "items_count": len(batch_data["items"]),
+            })
+
+        except Exception as e:
+            errors.append({
+                "voucher_number": voucher_num,
+                "error": str(e),
+            })
+            traceback.print_exc()
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error while saving: {str(e)}")
+
+    total_items = sum(o["items_count"] for o in created_orders)
+
+    return {
+        "success": True,
+        "message": f"Successfully imported {len(created_orders)} order(s) with {total_items} item(s).",
+        "orders_created": len(created_orders),
+        "items_imported": total_items,
+        "skipped_rows": skipped_rows,
+        "orders": created_orders,
+        "errors": errors,
+    }
+
+
+# Overload the endpoint to accept Form data properly
+from fastapi import File, UploadFile, Form
+
+@router.post("/purchase-orders/import")
+async def import_purchase_orders_form(
+    file: UploadFile = File(...),
+    order_placed_by: str = Form("Import"),
+    delivery_type: str = Form("sea"),
+    order_currency: str = Form("INR"),
+    db: Session = Depends(get_db),
+):
+    """Import purchase orders - Form-data version with proper File upload."""
+    return await import_purchase_orders_from_excel(
+        db=db,
+        file=file,
+        order_placed_by=order_placed_by,
+        delivery_type=delivery_type,
+        order_currency=order_currency,
+    )
+
+
+@router.post("/purchase-orders/import-excel")
+async def import_purchase_orders_excel(
+    file: UploadFile = File(...),
+    order_placed_by: str = Form("Import"),
+    currency: str = Form("INR"),
+    delivery_type: str = Form("sea"),
+    delivery_date: str = Form(None),
+    other_charges: float = Form(0.0),
+    remarks: str = Form(""),
+    gst_applicable: str = Form("false"),
+    gst_percentage: str = Form("0"),
+    db: Session = Depends(get_db),
+):
+    """Import purchase orders from an Excel (.xlsx) or CSV file.
+
+    Expected columns (Tally Accounting Voucher format):
+        Voucher Date, Voucher Type Name, Voucher Number,
+        Buyer/Supplier - Address, Buyer/Supplier - Pincode,
+        Ledger Name, Ledger Amount, Ledger Amount Dr/Cr,
+        Item Name, Billed Quantity, Item Rate, Item Rate per,
+        Item Amount, Change Mode
+
+    Rows are grouped by *Voucher Number* into purchase-order batches.
+    """
+    import openpyxl
+    import csv
+    from io import BytesIO, StringIO
+
+    # --- 1. Read the uploaded file -----------------------------------------
+    contents = await file.read()
+    filename = file.filename or ""
+
+    rows = []  # list[dict]
+
+    if filename.lower().endswith(".csv"):
+        text = contents.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(StringIO(text))
+        for row in reader:
+            rows.append(row)
+    elif filename.lower().endswith((".xlsx", ".xls")):
+        wb = openpyxl.load_workbook(BytesIO(contents), read_only=True, data_only=True)
+        ws = wb.active
+        # First row = headers
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+        headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(header_row)]
+        for row_vals in ws.iter_rows(min_row=2, values_only=True):
+            row_dict = dict(zip(headers, row_vals))
+            rows.append(row_dict)
+        wb.close()
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file format. Please upload .xlsx, .xls, or .csv",
+        )
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="The uploaded file contains no data rows.")
+
+    # --- 2. Pre-load lookup maps -------------------------------------------
+    all_suppliers = db.query(Supplier).filter(Supplier.is_active == True).all()
+    supplier_map = {}  # lower-case supplier_name -> Supplier
+    for s in all_suppliers:
+        supplier_map[s.supplier_name.lower().strip()] = s
+
+    all_products = db.query(Product).filter(Product.is_active == True).all()
+    product_by_part = {}   # lower-case part_code -> Product
+    product_by_desc = {}   # lower-case description -> Product
+    for p in all_products:
+        if p.part_code:
+            product_by_part[p.part_code.lower().strip()] = p
+        if p.description:
+            product_by_desc[p.description.lower().strip()] = p
+
+    # --- 3. Parse & group rows by Voucher Number ---------------------------
+    def _safe_str(val):
+        if val is None:
+            return ""
+        return str(val).strip()
+
+    def _safe_float(val):
+        if val is None:
+            return 0.0
+        try:
+            return float(str(val).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return 0.0
+
+    def _safe_int(val):
+        f = _safe_float(val)
+        return max(1, int(f)) if f > 0 else 1
+
+    def _parse_date(val):
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val
+        val_str = str(val).strip()
+        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%m-%d-%Y", "%m/%d/%Y", "%d-%b-%Y"):
+            try:
+                return datetime.strptime(val_str, fmt)
+            except ValueError:
+                continue
+        return None
+
+    # Group by voucher number (rows with same voucher number -> same PO batch)
+    groups = {}  # voucher_number -> list[row_dict]
+    skipped = 0
+    for row in rows:
+        item_name = _safe_str(row.get("Item Name", ""))
+        if not item_name:
+            skipped += 1
+            continue  # Skip rows without an item name
+
+        voucher_num = _safe_str(row.get("Voucher Number", "")) or f"IMP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        if voucher_num not in groups:
+            groups[voucher_num] = []
+        groups[voucher_num].append(row)
+
+    if not groups:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No valid data rows found. {skipped} row(s) skipped (missing Item Name).",
+        )
+
+    # --- 4. Create purchase orders -----------------------------------------
+    conn = db.connection()
+    total_orders_created = 0
+    total_items_created = 0
+    errors = []
+
+    # Calculate per-row other charges for the entire import batch
+    per_item_other_charges = 0.0
+    total_valid_items = sum(len(grp) for grp in groups.values())
+    if total_valid_items > 0:
+        per_item_other_charges = round(other_charges / total_valid_items, 2)
+
+    # Parse delivery date
+    parsed_del_date = None
+    if delivery_date:
+        try:
+            parsed_del_date = datetime.fromisoformat(delivery_date.replace('Z', '+00:00'))
+        except:
+            parsed_del_date = None
+
+    try:
+        for voucher_num, group_rows in groups.items():
+            # Generate IDs for this batch
+            purchase_id = _generate_purchase_id(conn)
+            order_number = _generate_order_number(conn)
+
+            # Use first row for common batch-level data
+            first_row = group_rows[0]
+            voucher_date = _parse_date(first_row.get("Voucher Date")) or datetime.now()
+            ledger_name = _safe_str(first_row.get("Ledger Name", ""))
+
+            # Match supplier
+            matched_supplier = supplier_map.get(ledger_name.lower(), None)
+            supplier_id = matched_supplier.id if matched_supplier else None
+            supplier_name = matched_supplier.supplier_name if matched_supplier else (ledger_name or "Unknown Supplier")
+
+            for item_row in group_rows:
+                item_name = _safe_str(item_row.get("Item Name", ""))
+                if not item_name:
+                    continue
+
+                billed_qty = _safe_int(item_row.get("Billed Quantity"))
+                item_rate = _safe_float(item_row.get("Item Rate"))
+                item_amount = _safe_float(item_row.get("Item Amount"))
+
+                # Auto-calculate amount if not provided
+                if item_amount == 0 and item_rate > 0:
+                    item_amount = item_rate * billed_qty
+
+                # Match product by part_code or description
+                matched_product = (
+                    product_by_part.get(item_name.lower())
+                    or product_by_desc.get(item_name.lower())
+                )
+
+                product_id = matched_product.id if matched_product else None
+                part_code = matched_product.part_code if matched_product else item_name
+                item_description = matched_product.description if matched_product else item_name
+                hsn_code = None
+                category_name = None
+                price_usd = 0
+                price_inr = 0
+                price_rmb = 0
+
+                if matched_product:
+                    hsn_code = (
+                        matched_product.hsn.hsn_code
+                        if matched_product.hsn
+                        else (matched_product.hsn_category_master.hsn_code if matched_product.hsn_category_master else None)
+                    )
+                    category_name = (
+                        matched_product.hsn_category_master.category_name
+                        if matched_product.hsn_category_master
+                        else (matched_product.category.category_name if matched_product.category else None)
+                    )
+                    price_usd = matched_product.unit_price_usd or 0
+                    price_inr = matched_product.unit_price_inr or 0
+                    price_rmb = matched_product.unit_price_rmb or 0
+
+                # Set unit price based on currency
+                unit_price = item_rate
+                subtotal = unit_price * billed_qty
+                item_total_before_gst = subtotal + per_item_other_charges
+                item_final_total = item_amount if item_amount > 0 else item_total_before_gst
+                
+                # Apply GST if configured (only applied to INR theoretically via UI)
+                is_gst_applicable = (gst_applicable.lower() == 'true')
+                applied_gst_pct = 0.0
+                calc_gst_amt = 0.0
+                
+                if is_gst_applicable:
+                    try:
+                        applied_gst_pct = float(gst_percentage)
+                    except ValueError:
+                        applied_gst_pct = 0.0
+                        
+                    calc_gst_amt = round((item_total_before_gst * applied_gst_pct) / 100.0, 2)
+                    item_final_total = item_total_before_gst + calc_gst_amt
+
+                item_remarks = f"Imported from {filename} | Voucher: {voucher_num}"
+                if remarks:
+                    item_remarks += f" | {remarks}"
+
+                db_order = PurchaseOrder(
+                    purchase_id=purchase_id,
+                    order_number=order_number,
+                    order_placed_by=order_placed_by,
+                    order_date=voucher_date,
+                    product_id=product_id,
+                    part_code=part_code,
+                    item_description=item_description,
+                    hsn_code=hsn_code,
+                    category_name=category_name,
+                    supplier_id=supplier_id,
+                    supplier_name=supplier_name,
+                    quantity=billed_qty,
+                    price_currency=currency,
+                    price_usd=price_usd,
+                    price_inr=price_inr,
+                    price_rmb=price_rmb,
+                    unit_price=unit_price,
+                    subtotal=subtotal,
+                    other_charges=per_item_other_charges,
+                    total=item_total_before_gst,
+                    gst_applicable=is_gst_applicable,
+                    gst_percentage=applied_gst_pct,
+                    gst_amount=calc_gst_amt,
+                    final_total=item_final_total,
+                    delivery_date=parsed_del_date,
+                    delivery_type=delivery_type,
+                    pi_status="open",
+                    remarks=item_remarks,
+                )
+                db.add(db_order)
+                total_items_created += 1
+
+            total_orders_created += 1
+
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        print(f"Import error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+    return {
+        "success": True,
+        "message": f"Successfully imported {total_items_created} item(s) across {total_orders_created} order(s).",
+        "orders_created": total_orders_created,
+        "items_created": total_items_created,
+        "rows_skipped": skipped,
+    }
+
+
+@router.get("/purchase-orders/import-template")
+def download_import_template():
+    """Download a blank Excel template matching the client's voucher sheet format."""
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Accounting Voucher"
+
+    # Headers matching client's format
+    headers = [
+        "Voucher Date",
+        "Voucher Type Name",
+        "Voucher Number",
+        "Buyer/Supplier - Address",
+        "Buyer/Supplier - Pincode",
+        "Ledger Name",
+        "Ledger Amount",
+        "Ledger Amount Dr/Cr",
+        "Item Name",
+        "Billed Quantity",
+        "Item Rate",
+        "Item Rate per",
+        "Item Amount",
+        "Change Mode",
+    ]
+
+    # Style
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1B2A4A", end_color="1B2A4A", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="B0BEC5"),
+        right=Side(style="thin", color="B0BEC5"),
+        top=Side(style="thin", color="B0BEC5"),
+        bottom=Side(style="thin", color="B0BEC5"),
+    )
+
+    # Column widths
+    widths = [15, 18, 16, 30, 12, 25, 15, 15, 30, 15, 12, 12, 15, 14]
+
+    for ci, (header, width) in enumerate(zip(headers, widths), 1):
+        cell = ws.cell(row=1, column=ci)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+        from openpyxl.utils import get_column_letter
+        ws.column_dimensions[get_column_letter(ci)].width = width
+
+    ws.row_dimensions[1].height = 30
+
+    # Add a sample row
+    sample = [
+        "10-04-2026", "Purchase", "PUR-001", "123 Supplier St, City",
+        "400001", "ABC Electronics", 50000, "Dr",
+        "Capacitor 100uF", 1000, 50, "Nos", 50000, ""
+    ]
+    sample_font = Font(name="Calibri", size=10, color="888888", italic=True)
+    for ci, val in enumerate(sample, 1):
+        cell = ws.cell(row=2, column=ci)
+        cell.value = val
+        cell.font = sample_font
+        cell.border = thin_border
+
+    # Instructions sheet
+    ws2 = wb.create_sheet("Instructions")
+    instructions = [
+        ("Import Template Instructions", None),
+        ("", None),
+        ("Column", "Description"),
+        ("Voucher Date", "Date of the purchase (DD-MM-YYYY format). Required."),
+        ("Voucher Type Name", "Type of voucher (e.g., Purchase). Optional."),
+        ("Voucher Number", "Unique voucher/reference number. Rows with same number are grouped as one order."),
+        ("Buyer/Supplier - Address", "Supplier address. Optional."),
+        ("Buyer/Supplier - Pincode", "Supplier pincode. Optional."),
+        ("Ledger Name", "Supplier/Party name. Used to match existing suppliers in the system."),
+        ("Ledger Amount", "Total ledger amount. Optional."),
+        ("Ledger Amount Dr/Cr", "Debit or Credit indicator. Optional."),
+        ("Item Name", "Product name or part code. REQUIRED - rows without this are skipped."),
+        ("Billed Quantity", "Number of units purchased. Required."),
+        ("Item Rate", "Price per unit. Required."),
+        ("Item Rate per", "Unit of measurement (Nos, Pcs, etc.). Optional."),
+        ("Item Amount", "Total amount for this line item. Auto-calculated if empty."),
+        ("Change Mode", "Change mode indicator. Optional."),
+        ("", None),
+        ("IMPORTANT NOTES:", None),
+        ("1. The 'Item Name' column is mandatory. Rows without it will be skipped.", None),
+        ("2. Rows with the same 'Voucher Number' will be grouped into one Purchase Order.", None),
+        ("3. If 'Ledger Name' matches an existing supplier, it will be linked automatically.", None),
+        ("4. If 'Item Name' matches an existing product (part code or description), it will be linked.", None),
+        ("5. Sample row (row 2) in the template is for reference only - replace with your data.", None),
+    ]
+
+    title_font = Font(name="Calibri", size=14, bold=True, color="1B2A4A")
+    bold_font = Font(name="Calibri", size=11, bold=True)
+    normal_font = Font(name="Calibri", size=10)
+
+    for ri, (col1, col2) in enumerate(instructions, 1):
+        c1 = ws2.cell(row=ri, column=1)
+        c1.value = col1
+        if ri == 1:
+            c1.font = title_font
+        elif ri == 3 or ri >= 19:
+            c1.font = bold_font
+        else:
+            c1.font = normal_font
+
+        if col2:
+            c2 = ws2.cell(row=ri, column=2)
+            c2.value = col2
+            c2.font = bold_font if ri == 3 else normal_font
+
+    ws2.column_dimensions["A"].width = 30
+    ws2.column_dimensions["B"].width = 70
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="Purchase_Import_Template.xlsx"'},
+    )
 
 
 # =============================================================================

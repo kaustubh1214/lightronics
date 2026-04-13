@@ -4,3 +4,4 @@ sqlalchemy>=2.0.0
 sqladmin>=0.16.0
 pydantic>=2.0.0
 python-multipart>=0.0.6
+openpyxl>=3.1.0
